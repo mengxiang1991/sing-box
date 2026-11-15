@@ -1,0 +1,5 @@
+{
+  "name": "entry",
+  "version": "0.1.0",
+  "dependencies": { "libsb_harmony.so": "file:./src/main/cpp/types/libsb_harmony" }
+}

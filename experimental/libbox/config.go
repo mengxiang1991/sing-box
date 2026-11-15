@@ -27,6 +27,10 @@ import (
 )
 
 func baseContext(platformInterface PlatformInterface) context.Context {
+	return baseContextWithParent(context.Background(), platformInterface)
+}
+
+func baseContextWithParent(ctx context.Context, platformInterface PlatformInterface) context.Context {
 	dnsRegistry := include.DNSTransportRegistry()
 	if platformInterface != nil {
 		if localTransport := platformInterface.LocalDNSTransport(); localTransport != nil {
@@ -35,7 +39,6 @@ func baseContext(platformInterface PlatformInterface) context.Context {
 			})
 		}
 	}
-	ctx := context.Background()
 	ctx = filemanager.WithDefault(ctx, sWorkingPath, sTempPath, sUserID, sGroupID)
 	return box.Context(ctx, include.InboundRegistry(), include.OutboundRegistry(), include.EndpointRegistry(), dnsRegistry, include.ServiceRegistry(), include.CertificateProviderRegistry())
 }

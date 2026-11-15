@@ -49,7 +49,11 @@ type CommandServerHandler interface {
 }
 
 func NewCommandServer(handler CommandServerHandler, platformInterface PlatformInterface) (*CommandServer, error) {
-	ctx := baseContext(platformInterface)
+	return newCommandServer(context.Background(), handler, platformInterface)
+}
+
+func newCommandServer(parent context.Context, handler CommandServerHandler, platformInterface PlatformInterface) (*CommandServer, error) {
+	ctx := baseContextWithParent(parent, platformInterface)
 	powerManager := powerreport.NewManager()
 	service.MustRegister[*powerreport.Manager](ctx, powerManager)
 	platformWrapper := &platformInterfaceWrapper{

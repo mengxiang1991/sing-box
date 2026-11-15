@@ -1,0 +1,17 @@
+{
+  "dns": {
+    "servers": [{ "type": "udp", "tag": "public", "server": "1.1.1.1" }],
+    "final": "public"
+  },
+  "inbounds": [{
+    "type": "tun",
+    "tag": "vpn",
+    "address": ["172.19.0.1/30"],
+    "auto_route": true
+  }],
+  "outbounds": [{ "type": "direct", "tag": "direct" }],
+  "route": {
+    "rules": [{ "protocol": "dns", "action": "hijack-dns" }],
+    "final": "direct"
+  }
+}

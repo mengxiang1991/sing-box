@@ -70,9 +70,15 @@ func (w *platformInterfaceWrapper) OpenInterface(options *tun.Options, platformO
 	if err != nil {
 		return nil, err
 	}
-	options.Name, err = getTunnelName(tunFd)
-	if err != nil {
-		return nil, E.Cause(err, "query tun name")
+	options.Name = ""
+	if namer, ok := w.iif.(interface{ TunName() string }); ok {
+		options.Name = namer.TunName()
+	}
+	if options.Name == "" {
+		options.Name, err = getTunnelName(tunFd)
+		if err != nil {
+			return nil, E.Cause(err, "query tun name")
+		}
 	}
 	options.InterfaceMonitor.RegisterMyInterface(options.Name)
 	dupFd, err := dup(int(tunFd))

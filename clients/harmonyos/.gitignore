@@ -1,0 +1,15 @@
+/build/
+/.core-build/
+/build-profile.json5
+/.hvigor/
+/.hvigor-user/
+/node_modules/
+/oh_modules/
+/entry/oh_modules/
+/entry/.cxx/
+/local.properties
+/.idea/
+/.clangd
+/.clang-tidy
+/entry/build/
+/entry/libs/

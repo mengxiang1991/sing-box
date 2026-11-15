@@ -1,0 +1,179 @@
+import { BusinessError } from '@kit.BasicServicesKit';
+import { connection, vpnExtension, VpnExtensionAbility } from '@kit.NetworkKit';
+import nativeCore from 'libsb_harmony.so';
+import { configPath, MAX_CONFIG_BYTES, readText, stopRequested, vpnWant, writeStatus } from '../common/Files';
+
+interface TunPlan {
+  addresses: string[];
+  routes: string[];
+  dns: string[] | null;
+  mtu: number;
+}
+
+interface CoreState {
+  state: string;
+  error?: string;
+  tun?: TunPlan;
+}
+
+function parsePrefix(value: string): connection.LinkAddress {
+  const parts = value.split('/');
+  const address = parts[0];
+  return {
+    address: { address: address, family: address.includes(':') ? 2 : 1, port: 0 },
+    prefixLength: Number(parts[1])
+  };
+}
+
+function vpnConfig(plan: TunPlan): vpnExtension.VpnConfig {
+  const addresses = plan.addresses.map((prefix: string) => parsePrefix(prefix));
+  const routes = plan.routes.map((prefix: string): connection.RouteInfo => {
+    const destination = parsePrefix(prefix);
+    const v6 = destination.address.family === 2;
+    return {
+      interface: 'vpn-tun', destination: destination,
+      gateway: { address: v6 ? '::' : '0.0.0.0', family: destination.address.family, port: 0 },
+      hasGateway: false, isDefaultRoute: destination.prefixLength === 0
+    };
+  });
+  return {
+    addresses: addresses, routes: routes, mtu: plan.mtu, dnsAddresses: plan.dns ?? [],
+    isIPv4Accepted: addresses.some((address: connection.LinkAddress) => address.address.family === 1),
+    isIPv6Accepted: addresses.some((address: connection.LinkAddress) => address.address.family === 2)
+  };
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise<void>((resolve: () => void) => { setTimeout(resolve, ms); });
+}
+
+export default class VpnAbility extends VpnExtensionAbility {
+  private vpn?: vpnExtension.VpnConnection;
+  private stopping: boolean = false;
+  private creation?: Promise<number>;
+  private destroyTask?: Promise<void>;
+  private shutdownReady: boolean = false;
+  private shutdownError?: string;
+
+  onCreate(): void {
+    this.run();
+  }
+
+  onDestroy(): void {
+    this.stopping = true;
+    nativeCore.stop();
+    this.destroyVpn().catch(() => {});
+    if (this.shutdownReady) {
+      this.publishStopped(this.shutdownError);
+    }
+  }
+
+  private publishStopped(error?: string): void {
+    try {
+      writeStatus(this.context.filesDir, 'stopped', error);
+    } catch (_) {
+      // The UI also treats an expired heartbeat as a stopped extension.
+    }
+  }
+
+  private destroyVpn(): Promise<void> {
+    if (this.destroyTask === undefined) {
+      this.destroyTask = this.destroyAfterCreation();
+    }
+    return this.destroyTask;
+  }
+
+  private async destroyAfterCreation(): Promise<void> {
+    if (this.creation !== undefined) {
+      try {
+        await this.creation;
+      } catch (_) {
+        return;
+      }
+      await this.vpn?.destroy();
+    }
+  }
+
+  private async run(): Promise<void> {
+    const directory = this.context.filesDir;
+    const startedAt = Date.now();
+    let error: string | undefined;
+    let stage = '读取配置';
+    try {
+      writeStatus(directory, 'starting');
+      const config = readText(configPath(directory), MAX_CONFIG_BYTES);
+      stage = '查询默认网络';
+      const network = await connection.getDefaultNet();
+      const properties = await connection.getConnectionProperties(network);
+      if (this.stopping || stopRequested(directory, startedAt)) { return; }
+      this.vpn = vpnExtension.createVpnConnection(this.context);
+      stage = '启动内核';
+      if (!nativeCore.start(config, directory, properties.interfaceName, network.netId)) {
+        throw new Error('无法启动内核');
+      }
+      let lastUpdate = 0;
+      const deadline = Date.now() + 30000;
+      while (!this.stopping && !stopRequested(directory, startedAt)) {
+        const current = JSON.parse(nativeCore.status()) as CoreState;
+        if (current.state === 'stopped') {
+          error = current.error;
+          break;
+        }
+        if (current.tun !== undefined) {
+          stage = '创建系统 VPN';
+          this.creation = this.vpn.create(vpnConfig(current.tun));
+          const fd = await this.creation;
+          if (this.stopping || stopRequested(directory, startedAt)) { return; }
+          stage = '保护 VPN 出站';
+          await this.vpn.protectProcessNet();
+          if (this.stopping || stopRequested(directory, startedAt)) { return; }
+          stage = '交接 TUN';
+          if (!nativeCore.setTunnel(fd)) {
+            throw new Error('无法将系统 VPN 交给内核');
+          }
+        }
+        if (current.state !== 'connected' && Date.now() > deadline) {
+          throw new Error('启动超时');
+        }
+        if (Date.now() - lastUpdate >= 1000) {
+          writeStatus(directory, current.state);
+          lastUpdate = Date.now();
+        }
+        await delay(current.state === 'connected' ? 1000 : 100);
+      }
+    } catch (cause) {
+      const code = (cause as BusinessError).code;
+      error = `${stage}失败${code ? `（系统错误 ${code}）` : ''}`;
+    } finally {
+      nativeCore.stop();
+      try {
+        await this.destroyVpn();
+      } catch (_) {
+        error = error ?? '关闭系统 VPN 失败';
+      }
+      const deadline = Date.now() + 5000;
+      while ((JSON.parse(nativeCore.status()) as CoreState).state !== 'stopped' && Date.now() < deadline) {
+        await delay(100);
+      }
+      if ((JSON.parse(nativeCore.status()) as CoreState).state !== 'stopped') {
+        error = error ?? '内核关闭超时';
+      }
+      if (this.stopping) {
+        this.publishStopped(error);
+      } else {
+        this.shutdownError = error;
+        this.shutdownReady = true;
+        try {
+          writeStatus(directory, 'stopping');
+        } catch (_) {
+          // Still request system shutdown when the status file cannot be updated.
+        }
+        try {
+          await vpnExtension.stopVpnExtensionAbility(vpnWant());
+        } catch (_) {
+          this.publishStopped(error ?? '请求系统停止 VPN 扩展失败');
+        }
+      }
+    }
+  }
+}
