@@ -8,6 +8,12 @@ The universal proxy platform.
 
 https://sing-box.sagernet.org
 
+## HarmonyOS client
+
+This branch includes a native ArkTS client for ARM64 phones running HarmonyOS 7 (API 26). The client builds the sing-box core from this repository and uses the system VPN extension for TUN routing. It supports local and pasted JSON, HTTPS JSON subscriptions, and outbound selection and latency testing.
+
+See the [HarmonyOS client guide](clients/harmonyos/README.md) for configuration, Windows build steps, debug signing, and on-device testing.
+
 ## License
 
 ```
