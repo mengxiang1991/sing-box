@@ -6,6 +6,7 @@ extern "C" {
 int SBStart(char *config, char *directory, char *interfaceName, int network);
 char *SBStatus();
 int SBSetTunnel(int fd);
+int SBControl(char *action, char *group, char *node);
 void SBStop();
 void SBFree(char *value);
 }
@@ -78,6 +79,19 @@ napi_value Stop(napi_env env, napi_callback_info)
     return result;
 }
 
+napi_value Control(napi_env env, napi_callback_info info)
+{
+    std::array<napi_value, 3> args{};
+    size_t count = args.size();
+    std::string action, group, node;
+    if (napi_get_cb_info(env, info, &count, args.data(), nullptr, nullptr) != napi_ok || count != args.size()
+        || !ReadString(env, args[0], action, 16) || !ReadString(env, args[1], group, 4096)
+        || !ReadString(env, args[2], node, 4096)) {
+        return Boolean(env, false);
+    }
+    return Boolean(env, SBControl(action.data(), group.data(), node.data()) == 0);
+}
+
 napi_value Init(napi_env env, napi_value exports)
 {
     const napi_property_descriptor methods[] = {
@@ -85,6 +99,7 @@ napi_value Init(napi_env env, napi_value exports)
         {"status", nullptr, Status, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"setTunnel", nullptr, SetTunnel, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"stop", nullptr, Stop, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"control", nullptr, Control, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(methods) / sizeof(methods[0]), methods);
     return exports;

@@ -1,7 +1,8 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { connection, vpnExtension, VpnExtensionAbility } from '@kit.NetworkKit';
 import nativeCore from 'libsb_harmony.so';
-import { configPath, MAX_CONFIG_BYTES, readText, stopRequested, vpnWant, writeStatus } from '../common/Files';
+import { BUNDLE_NAME, NodeGroups, readNodeCommand, stopRequested, vpnWant, writeStatus } from '../common/Files';
+import { activeProfile, loadProfiles, prepareVpnProfile } from '../common/Profiles';
 
 interface TunPlan {
   addresses: string[];
@@ -14,6 +15,8 @@ interface CoreState {
   state: string;
   error?: string;
   tun?: TunPlan;
+  groups?: NodeGroups;
+  networkError?: string;
 }
 
 function parsePrefix(value: string): connection.LinkAddress {
@@ -38,6 +41,8 @@ function vpnConfig(plan: TunPlan): vpnExtension.VpnConfig {
   });
   return {
     addresses: addresses, routes: routes, mtu: plan.mtu, dnsAddresses: plan.dns ?? [],
+    // Keep sockets opened by the VPN app itself on the underlying network.
+    blockedApplications: [BUNDLE_NAME],
     isIPv4Accepted: addresses.some((address: connection.LinkAddress) => address.address.family === 1),
     isIPv6Accepted: addresses.some((address: connection.LinkAddress) => address.address.family === 2)
   };
@@ -101,17 +106,24 @@ export default class VpnAbility extends VpnExtensionAbility {
     let stage = '读取配置';
     try {
       writeStatus(directory, 'starting');
-      const config = readText(configPath(directory), MAX_CONFIG_BYTES);
+      const profile = activeProfile(loadProfiles(directory));
+      if (profile === undefined) { throw new Error('没有选中的配置'); }
       stage = '查询默认网络';
       const network = await connection.getDefaultNet();
       const properties = await connection.getConnectionProperties(network);
       if (this.stopping || stopRequested(directory, startedAt)) { return; }
+      stage = '准备 VPN 的 DNS 和路由';
+      const config = prepareVpnProfile(profile.config, properties.dnses.map((dns: connection.NetAddress) => dns.address));
       this.vpn = vpnExtension.createVpnConnection(this.context);
       stage = '启动内核';
       if (!nativeCore.start(config, directory, properties.interfaceName, network.netId)) {
         throw new Error('无法启动内核');
       }
       let lastUpdate = 0;
+      let connectedAt = 0;
+      let commandId = 0;
+      let commandError: string | undefined;
+      let lastNetworkError: string | undefined;
       const deadline = Date.now() + 30000;
       while (!this.stopping && !stopRequested(directory, startedAt)) {
         const current = JSON.parse(nativeCore.status()) as CoreState;
@@ -135,8 +147,26 @@ export default class VpnAbility extends VpnExtensionAbility {
         if (current.state !== 'connected' && Date.now() > deadline) {
           throw new Error('启动超时');
         }
+        if (current.state === 'connected' && connectedAt === 0) {
+          connectedAt = Date.now();
+          lastUpdate = 0;
+        }
+        if (current.state === 'connected') {
+          const command = readNodeCommand(directory);
+          if (command !== undefined && command.id >= startedAt && command.id > commandId) {
+            commandId = command.id;
+            const ok = nativeCore.control(command.action, command.group, command.node);
+            commandError = ok ? undefined : command.action === 'select' ? '切换失败，原节点保持选中' : '无法启动测速';
+            writeStatus(directory, current.state, commandError, connectedAt, current.groups, commandId);
+            commandError = undefined;
+            lastUpdate = Date.now();
+          }
+        }
         if (Date.now() - lastUpdate >= 1000) {
-          writeStatus(directory, current.state);
+          const errorUpdate = current.networkError !== lastNetworkError ? current.networkError : undefined;
+          writeStatus(directory, current.state, errorUpdate, connectedAt || undefined, current.groups, commandId,
+            current.networkError);
+          lastNetworkError = current.networkError;
           lastUpdate = Date.now();
         }
         await delay(current.state === 'connected' ? 1000 : 100);

@@ -586,6 +586,15 @@ func (s *StartedService) SubscribeGroups(empty *emptypb.Empty, server grpc.Serve
 	}
 }
 
+func (s *StartedService) SnapshotGroups() *Groups {
+	s.serviceAccess.RLock()
+	defer s.serviceAccess.RUnlock()
+	if s.serviceStatus.Status != ServiceStatus_STARTED {
+		return &Groups{}
+	}
+	return s.readGroups()
+}
+
 func (s *StartedService) readGroups() *Groups {
 	historyStorage := s.instance.urlTestHistoryStorage
 	boxService := s.instance

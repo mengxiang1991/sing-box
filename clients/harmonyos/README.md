@@ -18,6 +18,10 @@ To install on a physical device, open `clients/harmonyos` in DevEco Studio, enab
 
 ## Configuration and device checks
 
+Import a local file or add an HTTPS subscription that returns a complete sing-box JSON configuration. The client stores up to eight profiles privately. Select a profile before connecting. Manual updates replace the selected subscription only after the download and TUN configuration checks succeed.
+
+After connecting, the **节点** section shows outbound groups defined by the profile. Use **测速** to refresh latency results and **切换** to select an outbound in a `selector` group. Use **复制诊断信息** to copy recent app errors without including the subscription URL or configuration contents.
+
 Import one UTF-8 sing-box JSON file up to 4 MiB. Use one `tun` inbound with an address and `auto_route: true`. Leave `stack` and `auto_redirect` unset to use the default Go stack with system-managed routing. The first version binds to the network selected at connect time. Reconnect after switching between Wi-Fi and cellular. Options for Android package filters and the system HTTP proxy are unsupported.
 
 Start with [direct-test.json](direct-test.json) to check the VPN without a proxy server. On a connected phone, grant the system VPN prompt, confirm the VPN icon appears, and use another app to check DNS and HTTPS. Disconnect and check that the icon disappears and ordinary traffic still works. Repeat with a rejected authorization and an invalid profile to check recovery. Then test your own configuration and proxy server.

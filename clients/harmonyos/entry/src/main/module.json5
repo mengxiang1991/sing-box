@@ -10,9 +10,9 @@
     "abilities": [{
       "name": "EntryAbility",
       "srcEntry": "./ets/EntryAbility.ets",
-      "icon": "$media:app_icon",
+      "icon": "$media:launcher_shield",
       "label": "$string:app_name",
-      "startWindowIcon": "$media:app_icon",
+      "startWindowIcon": "$media:launcher_shield",
       "startWindowBackground": "$color:start_window_background",
       "exported": true,
       "skills": [{ "entities": ["entity.system.home"], "actions": ["ohos.want.action.home"] }]

@@ -2,3 +2,4 @@ export function start(config: string, directory: string, interfaceName: string, 
 export function status(): string;
 export function setTunnel(fd: number): boolean;
 export function stop(): void;
+export function control(action: string, group: string, node: string): boolean;
