@@ -99,6 +99,23 @@ export default class VpnAbility extends VpnExtensionAbility {
     }
   }
 
+  private async createSystemVpn(vpn: vpnExtension.VpnConnection, config: vpnExtension.VpnConfig): Promise<number> {
+    try {
+      return await vpn.create(config);
+    } catch (error) {
+      const failure = error as BusinessError;
+      if (failure.code !== 2203002 || this.stopping) {
+        return Promise.reject(failure);
+      }
+      // A previous extension may have left this app's system VPN registered.
+      await vpn.destroy();
+      if (this.stopping) {
+        return Promise.reject(failure);
+      }
+      return await vpn.create(config);
+    }
+  }
+
   private async run(): Promise<void> {
     const directory = this.context.filesDir;
     const startedAt = Date.now();
@@ -133,7 +150,7 @@ export default class VpnAbility extends VpnExtensionAbility {
         }
         if (current.tun !== undefined) {
           stage = '创建系统 VPN';
-          this.creation = this.vpn.create(vpnConfig(current.tun));
+          this.creation = this.createSystemVpn(this.vpn, vpnConfig(current.tun));
           const fd = await this.creation;
           if (this.stopping || stopRequested(directory, startedAt)) { return; }
           stage = '保护 VPN 出站';

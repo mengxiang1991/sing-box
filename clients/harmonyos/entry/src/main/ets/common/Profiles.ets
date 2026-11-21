@@ -45,30 +45,65 @@ interface Inbound {
 
 interface Config {
   inbounds?: Inbound[];
-  outbounds?: object[];
+  outbounds?: Outbound[];
   dns?: DnsConfig;
   route?: RouteConfig;
+}
+
+interface Outbound {
+  type?: string;
+  tag?: string;
 }
 
 interface DnsServer {
   type: string;
   tag: string;
-  server: string;
+  server?: string;
+  inet4_range?: string;
 }
 
 interface DnsConfig {
   servers: DnsServer[];
   final: string;
+  rules?: DnsRule[];
+}
+
+interface DnsRule {
+  inbound: string[];
+  domain?: string | string[];
+  domain_suffix?: string | string[];
+  query_type: string[];
+  action: string;
+  server: string;
 }
 
 interface RouteRule {
   inbound?: string[];
   protocol?: string;
   action?: string;
+  outbound?: string;
+  domain?: string | string[];
+  domain_suffix?: string | string[];
 }
 
 interface RouteConfig {
   rules?: RouteRule[];
+}
+
+function desktopProxyDnsRules(config: Config, inboundTag: string): DnsRule[] {
+  const shadowsocks = new Set((config.outbounds ?? []).filter((outbound: Outbound) => outbound.type === 'shadowsocks')
+    .map((outbound: Outbound) => outbound.tag));
+  const result: DnsRule[] = [];
+  for (const rule of config.route?.rules ?? []) {
+    const simpleDomainMatch = Object.keys(rule).every((key: string) =>
+      key === 'domain' || key === 'domain_suffix' || key === 'action' || key === 'outbound');
+    if (simpleDomainMatch && (rule.domain || rule.domain_suffix) && rule.outbound && shadowsocks.has(rule.outbound) &&
+      (!rule.action || rule.action === 'route')) {
+      result.push({ inbound: [inboundTag], domain: rule.domain, domain_suffix: rule.domain_suffix,
+        query_type: ['A', 'AAAA'], action: 'route', server: 'harmony-proxy-dns' });
+    }
+  }
+  return result;
 }
 
 // A desktop HTTP/SOCKS listener receives domain names from the proxy client.
@@ -95,6 +130,13 @@ export function prepareVpnProfile(config: string, nameservers: string[]): string
   }
   const resolver: DnsServer = { type: 'udp', tag: 'harmony-system-dns', server: server };
   parsed.dns = { servers: [resolver], final: resolver.tag };
+  const proxyDnsRules = desktopProxyDnsRules(parsed, tag);
+  if (proxyDnsRules.length > 0) {
+    // FakeIP lets the TUN restore the destination domain before dialing Shadowsocks.
+    const proxyDns: DnsServer = { type: 'fakeip', tag: 'harmony-proxy-dns', inet4_range: '198.18.0.0/15' };
+    parsed.dns.servers.push(proxyDns);
+    parsed.dns.rules = proxyDnsRules;
+  }
   const sniff: RouteRule = { inbound: [tag], action: 'sniff' };
   const dns: RouteRule = { inbound: [tag], protocol: 'dns', action: 'hijack-dns' };
   const route: RouteConfig = parsed.route ?? {};

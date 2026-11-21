@@ -3,6 +3,9 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { picker } from '@kit.CoreFileKit';
 import { vpnExtension } from '@kit.NetworkKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { webview } from '@kit.ArkWeb';
+import { util } from '@kit.ArkTS';
+import { JsonEditorBridge } from '../common/JsonEditorBridge';
 import { MAX_CONFIG_BYTES, NodeCommand, NodeGroup, NodeItem, readStatus, readText, requestStop, vpnWant,
   writeNodeCommand } from '../common/Files';
 import { activeProfile, checkProfile, fetchProfile, loadProfiles, Profile, Profiles, saveProfiles, validateProfile } from '../common/Profiles';
@@ -19,8 +22,9 @@ struct Index {
   @State private profiles: Profiles = { active: '', items: [] };
   @State private subscription: string = '';
   @State private showJsonImport: boolean = false;
-  @State private jsonInput: string = '';
-  @State private jsonImportError: string = '';
+  @State private editingProfileId: string = '';
+  @State private editorTitle: string = '';
+  @State private activeTab: number = 0;
   @State private state: string = 'stopped';
   @State private errors: ErrorEntry[] = [];
   @State private busy: boolean = false;
@@ -34,6 +38,8 @@ struct Index {
   private lastServiceError: number = 0;
   private nextErrorId: number = 0;
   private reconnectPending: boolean = false;
+  private editorController: webview.WebviewController = new webview.WebviewController();
+  private editorBridge: JsonEditorBridge = new JsonEditorBridge();
 
   private context(): common.UIAbilityContext {
     return this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -155,9 +161,7 @@ struct Index {
     try {
       validateProfile(config);
     } catch (error) {
-      this.jsonInput = config;
-      this.jsonImportError = (error as Error).message;
-      this.showJsonImport = true;
+      this.openJsonEditor('', '导入配置', config, (error as Error).message);
       return;
     }
     try {
@@ -200,25 +204,79 @@ struct Index {
     }
   }
 
-  private importPastedJson(adaptTun: boolean = false): void {
-    let config = this.jsonInput.trim();
-    if (config.length === 0 || config.length > MAX_CONFIG_BYTES) {
-      this.jsonImportError = '请粘贴非空的 sing-box JSON，最大 4 MB';
+  private editProfile(item: Profile): void {
+    this.openJsonEditor(item.id, item.name, item.config);
+  }
+
+  private openJsonEditor(id: string, title: string, config: string = '', error: string = ''): void {
+    this.editingProfileId = id;
+    this.editorTitle = title;
+    this.editorController = new webview.WebviewController();
+    this.editorBridge = new JsonEditorBridge();
+    this.editorBridge.config = config;
+    this.editorBridge.error = error;
+    this.editorBridge.onSave = (value: string, adapt: boolean) => this.saveJson(value, adapt);
+    this.showJsonImport = true;
+  }
+
+  private closeJsonEditor(): void {
+    this.showJsonImport = false;
+    this.editingProfileId = '';
+    this.editorBridge.config = '';
+    this.editorBridge.error = '';
+  }
+
+  private leaveJsonEditor(): void {
+    if (!this.editorBridge.dirty) {
+      this.closeJsonEditor();
       return;
+    }
+    this.getUIContext().showAlertDialog({
+      title: '放弃未保存的修改？',
+      message: '关闭后将丢弃这次编辑。',
+      primaryButton: { value: '继续编辑', action: () => {} },
+      secondaryButton: { value: '放弃修改', action: () => { this.closeJsonEditor(); } }
+    });
+  }
+
+  onBackPress(): boolean {
+    if (this.showJsonImport) {
+      this.leaveJsonEditor();
+      return true;
+    }
+    return false;
+  }
+
+  private saveJson(value: string, adaptTun: boolean): string {
+    if (this.state !== 'stopped') {
+      return '断开 VPN 后才能保存配置';
+    }
+    let config = value.trim();
+    if (config.length === 0 || config.length > MAX_CONFIG_BYTES ||
+      new util.TextEncoder().encodeInto(config).byteLength > MAX_CONFIG_BYTES) {
+      return '请填写非空的 sing-box JSON，最大 4 MB';
     }
     try {
       config = checkProfile(config, adaptTun);
     } catch (error) {
-      this.jsonImportError = (error as Error).message;
-      return;
+      return (error as Error).message;
     }
     try {
-      this.addProfile(`粘贴配置 ${this.profiles.items.length + 1}`, config);
-      this.jsonInput = '';
-      this.jsonImportError = '';
-      this.showJsonImport = false;
+      if (this.editingProfileId === '') {
+        this.addProfile(`粘贴配置 ${this.profiles.items.length + 1}`, config);
+      } else {
+        const profile = this.profiles.items.find((item: Profile) => item.id === this.editingProfileId);
+        if (!profile) {
+          return '这份配置已移除';
+        }
+        const updated: Profile = { id: profile.id, name: profile.name, config: config, url: profile.url };
+        const items = this.profiles.items.map((item: Profile) => item.id === updated.id ? updated : item);
+        this.commitProfiles({ active: this.profiles.active, items: items });
+      }
+      this.closeJsonEditor();
+      return '';
     } catch (_) {
-      this.jsonImportError = '无法保存配置，请检查存储空间或移除一份旧配置';
+      return '无法保存配置，请检查存储空间或移除一份旧配置';
     }
   }
 
@@ -288,115 +346,249 @@ struct Index {
     }
   }
 
-  build() {
+  @Builder
+  pageHeader(title: string) {
+    Text(title).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#172447').width('100%')
+  }
+
+  @Builder
+  connectionPage() {
     Scroll() {
-      Column({ space: 24 }) {
-        Text('sing-box').fontSize(34).fontWeight(FontWeight.Bold).fontColor('#122C3A')
-
-        Column({ space: 8 }) {
-          Text('VPN').fontSize(14).fontColor('#A3EADC')
-          Text(this.label()).fontSize(30).fontWeight(FontWeight.Medium).fontColor('#FFFFFF')
-          if (this.state === 'connected') {
-            Text(this.duration()).fontSize(16).fontColor('#A3EADC').accessibilityDescription('连接时长')
-            if (this.nodeGroups.length > 0 && this.nodeGroups[0].selected) {
-              Text(`节点 ${this.nodeGroups[0].selected}`).fontSize(16).fontColor('#FFFFFF')
+      Column({ space: 20 }) {
+        this.pageHeader('sing-box')
+        Column({ space: 12 }) {
+          Row({ space: 8 }) {
+            Circle().width(8).height(8).fill(this.state === 'connected' ? '#92F0CE' : '#AAB8D1')
+            Text('VPN').fontSize(14).fontColor('#C7D4E9')
+            Blank()
+            if (this.state === 'connected') {
+              Text(this.duration()).fontSize(15).fontColor('#92F0CE').accessibilityDescription('连接时长')
             }
+          }.width('100%')
+          Text(this.label()).fontSize(36).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
+          Divider().color('#324469').margin({ top: 4, bottom: 4 })
+          Text(activeProfile(this.profiles)?.name ?? '请先添加配置').maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(16).fontColor('#DFE8F7')
+          if (this.state === 'connected' && this.nodeGroups[0]?.selected) {
+            Text('当前节点 · ' + this.nodeGroups[0].selected).maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(14).fontColor('#C7D4E9')
           }
-          Button(this.state === 'connected' ? '断开' : this.state === 'starting' ? '取消连接' : '连接')
-            .width('100%').margin({ top: 12 }).fontColor('#122C3A').backgroundColor('#A3EADC')
-            .enabled(this.profiles.active.length > 0 && !this.busy && this.state !== 'stopping')
-            .onClick(() => { this.toggle(); })
-          if (this.state === 'connected') {
-            Button('重连').enabled(!this.busy).onClick(() => { this.reconnect(); })
-          }
-        }.width('100%').padding(20).alignItems(HorizontalAlign.Start).backgroundColor('#122C3A').borderRadius(18)
+          Row({ space: 10 }) {
+            Button(this.state === 'connected' ? '断开' : this.state === 'starting' ? '取消连接' : '连接')
+              .layoutWeight(1).height(48).fontColor('#172447').backgroundColor('#92F0CE')
+              .enabled(this.profiles.active.length > 0 && !this.busy && this.state !== 'stopping')
+              .onClick(() => { this.toggle(); })
+            if (this.state === 'connected') {
+              Button('重连').height(48).backgroundColor('#324469').fontColor('#FFFFFF')
+                .enabled(!this.busy).onClick(() => { this.reconnect(); })
+            }
+          }.width('100%').margin({ top: 6 })
+        }.width('100%').padding(22).alignItems(HorizontalAlign.Start).backgroundColor('#172447').borderRadius(22)
+        if (!this.profiles.active) {
+          Button('前往配置').width('100%').height(44).fontColor('#172447').backgroundColor('#E3EBF7')
+            .onClick(() => { this.activeTab = 1; })
+        }
+        if (this.errors.length > 0) {
+          Column({ space: 8 }) {
+            Text('最近错误').fontSize(14).fontWeight(FontWeight.Medium).fontColor('#51627E')
+            Text(this.errors[0].message).fontSize(15).fontColor('#963125').maxLines(3)
+            Button('查看日志', { type: ButtonType.Normal }).height(40).fontColor('#172447')
+              .backgroundColor('#E3EBF7').borderRadius(10).onClick(() => { this.activeTab = 3; })
+          }.alignItems(HorizontalAlign.Start).width('100%')
+        }
+      }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(20)
+    }.width('100%').height('100%').align(Alignment.Top)
+  }
 
-        Row({ space: 12 }) {
-          Column({ space: 5 }) {
-            Text('配置文件').fontSize(18).fontWeight(FontWeight.Medium).fontColor('#122C3A')
-            Text(activeProfile(this.profiles)?.name ?? '请选择 sing-box JSON').fontSize(14).fontColor('#415C69')
-          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          Button('导入文件').fontColor('#122C3A').backgroundColor('#DAEAE8')
+  @Builder
+  profilesPage() {
+    Scroll() {
+      Column({ space: 18 }) {
+        this.pageHeader('配置')
+        if (this.state !== 'stopped') {
+          Text('断开 VPN 后可导入、编辑或切换配置。').fontSize(14).fontColor('#51627E')
+        }
+        Row({ space: 10 }) {
+          Button('导入文件').layoutWeight(1).height(44).backgroundColor('#172447').fontColor('#FFFFFF')
             .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.importConfig(); })
-        }.width('100%')
-
-        Column({ space: 8 }) {
-          Button(this.showJsonImport ? '收起 JSON 输入' : '粘贴 JSON')
+          Button('粘贴 JSON').layoutWeight(1).height(44).backgroundColor('#E3EBF7').fontColor('#172447')
             .enabled(!this.busy && this.state === 'stopped')
-            .onClick(() => { this.showJsonImport = !this.showJsonImport; })
-          if (this.showJsonImport && this.state === 'stopped') {
-            TextArea({ placeholder: '在这里长按粘贴完整的 sing-box JSON', text: this.jsonInput })
-              .width('100%').height(148)
-              .onChange((value: string) => { this.jsonInput = value; this.jsonImportError = ''; })
-            Button('保存 JSON 配置').enabled(!this.busy && this.jsonInput.trim().length > 0)
-              .onClick(() => { this.importPastedJson(); })
-            if (this.jsonImportError.length > 0) {
-              Text(this.jsonImportError).fontColor('#9C2A16').fontSize(14)
-              if (this.jsonImportError.includes('「适配鸿蒙并保存」')) {
-                Text('按需添加 TUN 入站，使用默认 Go 栈和系统 VPN 路由。').fontSize(13).fontColor('#415C69')
-                Button('适配鸿蒙并保存').enabled(!this.busy)
-                  .onClick(() => { this.importPastedJson(true); })
-              }
-            }
-          }
+            .onClick(() => { this.openJsonEditor('', '粘贴配置'); })
+        }.width('100%')
+        Column({ space: 10 }) {
+          Text('订阅').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#172447')
           TextInput({ placeholder: 'HTTPS sing-box JSON 订阅地址', text: this.subscription })
+            .width('100%').height(46).backgroundColor('#EFF3FA')
             .onChange((value: string) => { this.subscription = value; })
           Row({ space: 8 }) {
-            Button('添加订阅').enabled(!this.busy && this.state === 'stopped' && this.subscription.trim().length > 0)
+            Button('添加订阅').layoutWeight(1).height(42).backgroundColor('#E3EBF7').fontColor('#172447')
+              .enabled(!this.busy && this.state === 'stopped' && this.subscription.trim().length > 0)
               .onClick(() => { this.downloadProfile(false); })
-            Button('更新当前订阅').enabled(!this.busy && this.state === 'stopped' && !!activeProfile(this.profiles)?.url)
+            Button('更新当前订阅').layoutWeight(1).height(42).backgroundColor('#EFF3FA').fontColor('#172447')
+              .enabled(!this.busy && this.state === 'stopped' && !!activeProfile(this.profiles)?.url)
               .onClick(() => { this.downloadProfile(true); })
-          }
-          ForEach(this.profiles.items, (item: Profile) => {
+          }.width('100%')
+        }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor('#FFFFFF').borderRadius(16)
+
+        if (this.profiles.items.length === 0) {
+          Text('暂无配置，可以从文件、剪贴板或订阅添加。').fontSize(15).fontColor('#51627E')
+        }
+        ForEach(this.profiles.items, (item: Profile) => {
+          Column({ space: 11 }) {
             Row({ space: 8 }) {
-              Text(item.name).layoutWeight(1)
-              Button(this.profiles.active === item.id ? '当前配置' : '选择')
-                .enabled(!this.busy && this.state === 'stopped' && this.profiles.active !== item.id)
-                .onClick(() => { this.changeProfile(item.id, false); })
-              Button('移除').enabled(!this.busy && this.state === 'stopped')
-                .onClick(() => { this.changeProfile(item.id, true); })
+              Column({ space: 5 }) {
+                Text(item.name).fontSize(17).fontWeight(FontWeight.Medium).fontColor('#172447')
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text(item.url ? 'HTTPS 订阅' : '本地 JSON').fontSize(13).fontColor('#51627E')
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              if (this.profiles.active === item.id) {
+                Text('当前配置').padding({ left: 10, right: 10, top: 5, bottom: 5 }).fontSize(12)
+                  .fontColor('#174C3F').backgroundColor('#DBF8EE').borderRadius(8)
+              }
             }.width('100%')
-          }, (item: Profile) => item.id)
-        }.width('100%').alignItems(HorizontalAlign.Start)
+            Divider().color('#E8EEF7')
+            Row({ space: 8 }) {
+              if (this.profiles.active !== item.id) {
+                Button('选用').height(40).backgroundColor('#172447').fontColor('#FFFFFF')
+                  .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.changeProfile(item.id, false); })
+              }
+              Button('编辑').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+                .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.editProfile(item); })
+              Blank()
+              Button('移除').height(40).backgroundColor('#FFF0EF').fontColor('#963125')
+                .enabled(!this.busy && this.state === 'stopped').onClick(() => {
+                  this.getUIContext().showAlertDialog({
+                    title: '移除这份配置？',
+                    message: item.name,
+                    primaryButton: { value: '取消', action: () => {} },
+                    secondaryButton: { value: '移除', action: () => { this.changeProfile(item.id, true); } }
+                  });
+                })
+            }.width('100%')
+          }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor('#FFFFFF').borderRadius(16)
+        }, (item: Profile) => item.id)
+      }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(20)
+    }.width('100%').height('100%').align(Alignment.Top)
+  }
 
-        if (this.state === 'connected' && this.nodeGroups.length > 0) {
-          Column({ space: 12 }) {
-            Text('节点').fontSize(18).fontWeight(FontWeight.Medium)
-            ForEach(this.nodeGroups, (group: NodeGroup) => {
-              Column({ space: 6 }) {
-                Row({ space: 8 }) {
-                  Text(group.tag).layoutWeight(1).fontWeight(FontWeight.Medium)
-                  Button('测速').enabled(this.pendingNodeCommand === 0)
-                    .onClick(() => { this.controlNode('test', group.tag); })
-                }.width('100%')
-                ForEach(group.items ?? [], (node: NodeItem) => {
-                  Row({ space: 8 }) {
-                    Column({ space: 4 }) {
-                      Text(node.tag)
-                      Text(`${node.type} · ${node.urlTestDelay ? `${node.urlTestDelay} ms` : '暂无测速结果'}`).fontSize(13)
-                    }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-                    if (group.selectable || node.tag === group.selected) {
-                      Button(node.tag === group.selected ? '已选' : '切换')
-                        .enabled(!!group.selectable && node.tag !== group.selected && this.pendingNodeCommand === 0)
-                        .onClick(() => { this.controlNode('select', group.tag, node.tag); })
-                    }
-                  }.width('100%')
-                }, (node: NodeItem) => `${node.tag}:${node.urlTestDelay ?? 0}:${group.selected ?? ''}`)
+  @Builder
+  nodesPage() {
+    Scroll() {
+      Column({ space: 16 }) {
+        this.pageHeader('节点')
+        if (this.state !== 'connected') {
+          Text('连接后可查看节点组、测速和切换。').fontSize(15).fontColor('#51627E')
+        } else if (this.nodeGroups.length === 0) {
+          Text('当前配置没有出站节点组。').fontSize(15).fontColor('#51627E')
+        } else {
+          ForEach(this.nodeGroups, (group: NodeGroup) => {
+            Column({ space: 10 }) {
+              Row({ space: 8 }) {
+                Text(group.tag).layoutWeight(1).fontSize(17).fontWeight(FontWeight.Bold).fontColor('#172447')
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                Button('测速').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+                  .enabled(this.pendingNodeCommand === 0).onClick(() => { this.controlNode('test', group.tag); })
               }.width('100%')
-            }, (group: NodeGroup) => JSON.stringify(group))
-          }.width('100%').alignItems(HorizontalAlign.Start)
+              ForEach(group.items ?? [], (node: NodeItem) => {
+                Divider().color('#E8EEF7')
+                Row({ space: 8 }) {
+                  Column({ space: 4 }) {
+                    Text(node.tag).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor('#172447')
+                    Text(node.type + ' · ' + (node.urlTestDelay ? node.urlTestDelay + ' ms' : '暂无测速结果'))
+                      .fontSize(13).fontColor('#51627E')
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                  if (node.tag === group.selected) {
+                    Text('已选').padding(7).fontSize(12).fontColor('#174C3F').backgroundColor('#DBF8EE').borderRadius(8)
+                  } else if (group.selectable) {
+                    Button('切换').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+                      .enabled(this.pendingNodeCommand === 0)
+                      .onClick(() => { this.controlNode('select', group.tag, node.tag); })
+                  }
+                }.width('100%')
+              }, (node: NodeItem) => node.tag + ':' + (node.urlTestDelay ?? 0) + ':' + (group.selected ?? ''))
+            }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor('#FFFFFF').borderRadius(16)
+          }, (group: NodeGroup) => JSON.stringify(group))
         }
+      }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(20)
+    }.width('100%').height('100%').align(Alignment.Top)
+  }
 
-        if (this.errors.length > 0) {
+  @Builder
+  logsPage() {
+    Scroll() {
+      Column({ space: 16 }) {
+        this.pageHeader('日志')
+        if (this.errors.length === 0) {
+          Text('暂无错误记录。').fontSize(15).fontColor('#51627E')
+        } else {
+          Button(this.copied ? '已复制' : '复制诊断信息').height(44).backgroundColor('#172447').fontColor('#FFFFFF')
+            .onClick(() => { this.copyErrors(); })
           Column({ space: 10 }) {
-            Text('最近错误').fontSize(18).fontWeight(FontWeight.Medium).fontColor('#122C3A')
-            Button(this.copied ? '已复制' : '复制诊断信息').onClick(() => { this.copyErrors(); })
             ForEach(this.errors, (entry: ErrorEntry) => {
-              Text(`${entry.time}  ${entry.message}`).fontSize(14).fontColor('#9C2A16')
+              Row({ space: 12 }) {
+                Text(entry.time).fontSize(12).fontColor('#51627E')
+                Text(entry.message).layoutWeight(1).fontSize(14).fontColor('#963125')
+              }.width('100%').alignItems(VerticalAlign.Top)
+              Divider().color('#E8EEF7')
             }, (entry: ErrorEntry) => entry.id.toString())
-          }.width('100%').alignItems(HorizontalAlign.Start)
+          }.padding(16).width('100%').backgroundColor('#FFFFFF').borderRadius(16)
         }
-      }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(24)
-    }.align(Alignment.Top).width('100%').height('100%').backgroundColor('#F1F7F6')
+      }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(20)
+    }.width('100%').height('100%').align(Alignment.Top)
+  }
+
+  @Builder
+  tab(label: string, index: number) {
+    Column({ space: 6 }) {
+      Divider().strokeWidth(3).width(22).color(this.activeTab === index ? '#247F67' : '#FFFFFF')
+      Text(label).fontSize(14).fontWeight(this.activeTab === index ? FontWeight.Bold : FontWeight.Medium)
+        .fontColor(this.activeTab === index ? '#174C3F' : '#51627E')
+    }.width('100%').height(54).justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  editorPage() {
+    Column() {
+      Row({ space: 12 }) {
+        Button('返回', { type: ButtonType.Normal }).height(42).borderRadius(9)
+          .backgroundColor('#253657').fontColor('#E8EDF7').onClick(() => { this.leaveJsonEditor(); })
+        Column({ space: 4 }) {
+          Text(this.editorTitle).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.editingProfileId && this.profiles.items.find((item: Profile) => item.id === this.editingProfileId)?.url) {
+            Text('手动更新订阅会覆盖本地修改').fontSize(12).fontColor('#C7D4E9')
+          }
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      }.width('100%').padding({ left: 14, right: 14, top: 10, bottom: 10 }).backgroundColor('#172447')
+      Web({ src: $rawfile('json-editor.html'), controller: this.editorController })
+        .javaScriptAccess(true)
+        .domStorageAccess(false)
+        .blockNetwork(true)
+        .fileAccess(false)
+        .javaScriptProxy({
+          object: this.editorBridge,
+          name: 'EditorHost',
+          methodList: ['getConfig', 'getError', 'setDirty', 'saveConfig'],
+          controller: this.editorController
+        })
+        .width('100%').layoutWeight(1)
+    }.width('100%').height('100%').backgroundColor('#101A32')
+  }
+
+  build() {
+    if (this.showJsonImport) {
+      this.editorPage()
+    } else {
+      Tabs({ barPosition: BarPosition.End, index: this.activeTab }) {
+        TabContent() { this.connectionPage() }.tabBar(this.tab('连接', 0))
+        TabContent() { this.profilesPage() }.tabBar(this.tab('配置', 1))
+        TabContent() { this.nodesPage() }.tabBar(this.tab('节点', 2))
+        TabContent() { this.logsPage() }.tabBar(this.tab('日志', 3))
+      }
+      .width('100%').height('100%').barMode(BarMode.Fixed)
+      .barHeight(58).barBackgroundColor('#FFFFFF').scrollable(false)
+      .onChange((index: number) => { this.activeTab = index; })
+      .backgroundColor('#F1F5FB')
+    }
   }
 }

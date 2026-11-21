@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
+  <title>配置编辑器</title>
+  <style>
+    :root{color-scheme:dark;--bg:#101a32;--panel:#172447;--line:#324469;--text:#e8edf7;--muted:#aab8d1;--mint:#92f0ce;--error:#ffb7ae}
+    *{box-sizing:border-box}
+    body{margin:0;height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:14px system-ui,sans-serif;overflow:hidden}
+    header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+    header strong{font-size:15px;white-space:nowrap}
+    .actions{display:flex;gap:8px}
+    button{border:1px solid var(--line);border-radius:9px;min-height:42px;padding:0 12px;background:transparent;color:var(--text);font:600 14px system-ui,sans-serif;white-space:nowrap}
+    button.primary{background:var(--mint);color:#142542;border-color:transparent}
+    button:disabled{opacity:.5}
+    button:focus-visible,textarea:focus-visible{outline:2px solid var(--mint);outline-offset:-2px}
+    main{display:flex;flex:1;min-height:0;position:relative}
+    pre,textarea{margin:0;border:0;font:14px/23px ui-monospace,'Courier New',monospace;letter-spacing:0;tab-size:2;font-variant-ligatures:none;white-space:pre}
+    #gutter{width:45px;flex:none;overflow:hidden;padding:12px 8px 12px 0;text-align:right;color:var(--muted);background:#131f3b;border-right:1px solid var(--line)}
+    .document{position:relative;flex:1;min-width:0}
+    #paint,#source{position:absolute;inset:0;width:100%;height:100%;padding:12px;overflow:auto}
+    #paint{pointer-events:none;scrollbar-width:none}
+    #paint::-webkit-scrollbar{display:none}
+    #source{resize:none;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--mint);outline:none}
+    #source::placeholder{-webkit-text-fill-color:var(--muted)}
+    #source::selection{background:#48619199}
+    body.plain #source{color:var(--text);-webkit-text-fill-color:var(--text)}
+    body.plain #paint{display:none}
+    .key{color:#83c5ff}.string{color:#92f0ce}.number{color:#f4c486}.literal{color:#e9b4fc}
+    footer{display:flex;flex-direction:column;gap:7px;min-height:34px;padding:8px 14px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:12px}
+    #status.error{color:var(--error)}
+    #adapt{text-align:left;align-self:flex-start}
+    [hidden]{display:none}
+  </style>
+</head>
+<body>
+  <header>
+    <strong>JSON</strong>
+    <div class="actions">
+      <button id="format" type="button" disabled>格式化</button>
+      <button class="primary" id="save" type="button" disabled>保存</button>
+    </div>
+  </header>
+  <main>
+    <pre id="gutter" aria-hidden="true"></pre>
+    <div class="document">
+      <pre id="paint" aria-hidden="true"></pre>
+      <textarea id="source" aria-label="sing-box JSON 配置" placeholder="输入或粘贴完整的 sing-box JSON" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" readonly></textarea>
+    </div>
+  </main>
+  <footer>
+    <span id="status" role="status">正在打开配置</span>
+    <button id="adapt" type="button" hidden>适配鸿蒙并保存</button>
+  </footer>
+  <script>
+    'use strict';
+    const source = document.getElementById('source');
+    const paint = document.getElementById('paint');
+    const gutter = document.getElementById('gutter');
+    const formatButton = document.getElementById('format');
+    const saveButton = document.getElementById('save');
+    const adaptButton = document.getElementById('adapt');
+    const status = document.getElementById('status');
+    const token = /"(?:[^"\\]|\\[\s\S])*"|true|false|null|-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+    const keySuffix = /\s*:/y;
+    let savedText = '';
+    let repaint = 0;
+
+    function setStatus(text, error = false) {
+      status.textContent = text;
+      status.classList.toggle('error', error);
+    }
+
+    function syncScroll() {
+      paint.scrollLeft = source.scrollLeft;
+      paint.scrollTop = source.scrollTop;
+      gutter.scrollTop = source.scrollTop;
+    }
+
+    function redraw() {
+      const text = source.value;
+      const plain = text.length > 150000;
+      document.body.classList.toggle('plain', plain);
+      const lineCount = text.split('\n').length;
+      gutter.hidden = plain;
+      gutter.textContent = plain ? '' : Array.from({length: lineCount}, (_, i) => String(i + 1)).join('\n');
+      if (!plain) {
+        const nodes = document.createDocumentFragment();
+        let tail = 0;
+        for (const match of text.matchAll(token)) {
+          const raw = match[0];
+          const offset = match.index;
+          nodes.append(text.slice(tail, offset));
+          tail = offset + raw.length;
+          keySuffix.lastIndex = tail;
+          const type = raw[0] === '"' ? (keySuffix.test(text) ? 'key' : 'string') :
+            /^-?\d/.test(raw) ? 'number' : /^(true|false|null)$/.test(raw) ? 'literal' : '';
+          if (type) {
+            const part = document.createElement('span');
+            part.className = type;
+            part.textContent = raw;
+            nodes.append(part);
+          } else {
+            nodes.append(raw);
+          }
+        }
+        nodes.append(text.slice(tail) + '\n');
+        paint.replaceChildren(nodes);
+      } else {
+        paint.textContent = '';
+      }
+      syncScroll();
+      setStatus(`${lineCount} 行${plain ? ' · 大文件纯文本模式' : ''}`);
+    }
+
+    function change() {
+      adaptButton.hidden = true;
+      window.EditorHost?.setDirty(source.value !== savedText);
+      cancelAnimationFrame(repaint);
+      repaint = requestAnimationFrame(redraw);
+    }
+
+    // Validate the entire document first, then reindent the original tokens.
+    // Keeping token text avoids rounding integers or rewriting escape sequences.
+    function formatJson(input) {
+      JSON.parse(input);
+      const matches = input.match(token) ?? [];
+      const parts = [];
+      let depth = 0;
+      const indent = () => '\n' + '  '.repeat(depth);
+      for (let index = 0; index < matches.length; index += 1) {
+        const current = matches[index];
+        const previous = matches[index - 1];
+        const next = matches[index + 1];
+        if (current === '{' || current === '[') {
+          parts.push(current);
+          depth += 1;
+          if (next !== '}' && next !== ']') parts.push(indent());
+        } else if (current === '}' || current === ']') {
+          depth -= 1;
+          if (previous !== '{' && previous !== '[') parts.push(indent());
+          parts.push(current);
+        } else if (current === ',') {
+          parts.push(',', indent());
+        } else if (current === ':') {
+          parts.push(': ');
+        } else {
+          parts.push(current);
+        }
+      }
+      return parts.join('');
+    }
+
+    function save(adapt) {
+      cancelAnimationFrame(repaint);
+      try {
+        const error = window.EditorHost.saveConfig(source.value, adapt);
+        if (!error) return;
+        setStatus(error, true);
+        adaptButton.hidden = !error.includes('「适配鸿蒙并保存」');
+      } catch (_) {
+        setStatus('无法保存，请重试。', true);
+      }
+    }
+
+    source.addEventListener('input', change);
+    source.addEventListener('scroll', syncScroll);
+    formatButton.addEventListener('click', () => {
+      try {
+        source.value = formatJson(source.value);
+        change();
+      } catch (_) {
+        setStatus('JSON 语法有误，请检查括号、引号和逗号。', true);
+      }
+    });
+    saveButton.addEventListener('click', () => save(false));
+    adaptButton.addEventListener('click', () => save(true));
+    window.addEventListener('load', () => {
+      const load = () => {
+        if (!window.EditorHost) return false;
+        try {
+          savedText = window.EditorHost.getConfig();
+          source.value = savedText;
+          source.readOnly = false;
+          formatButton.disabled = false;
+          saveButton.disabled = false;
+          redraw();
+          const error = window.EditorHost.getError();
+          if (error) {
+            setStatus(error, true);
+            adaptButton.hidden = !error.includes('「适配鸿蒙并保存」');
+          }
+        } catch (_) {
+          setStatus('无法读取配置，请关闭后重试。', true);
+        }
+        return true;
+      };
+      if (load()) return;
+      let retries = 0;
+      const timer = setInterval(() => {
+        if (load()) clearInterval(timer);
+        else if (++retries >= 20) {
+          clearInterval(timer);
+          setStatus('编辑器未能加载，请关闭后重试。', true);
+        }
+      }, 100);
+    });
+  </script>
+</body>
+</html>

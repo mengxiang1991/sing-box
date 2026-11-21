@@ -10,7 +10,7 @@ https://sing-box.sagernet.org
 
 ## HarmonyOS client
 
-This branch includes a native ArkTS client for ARM64 phones running HarmonyOS 7 (API 26). The client builds the sing-box core from this repository and uses the system VPN extension for TUN routing. It supports local and pasted JSON, HTTPS JSON subscriptions, and outbound selection and latency testing.
+This branch includes a native ArkTS client for ARM64 phones and tablets running HarmonyOS 7 (API 26), including the MatePad mini. The client builds the sing-box core from this repository and uses the system VPN extension for TUN routing. It supports local and pasted JSON, HTTPS JSON subscriptions, and outbound selection and latency testing. Imported configurations can be edited in a full-screen JSON editor with syntax highlighting, line numbers, and formatting.
 
 See the [HarmonyOS client guide](clients/harmonyos/README.md) for configuration, Windows build steps, debug signing, and on-device testing.
 
