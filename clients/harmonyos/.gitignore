@@ -13,3 +13,4 @@
 /.clang-tidy
 /entry/build/
 /entry/libs/
+/entry/src/main/resources/rawfile/mihomo-country.mmdb

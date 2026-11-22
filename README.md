@@ -8,13 +8,13 @@ The universal proxy platform.
 
 https://sing-box.sagernet.org
 
-## HarmonyOS client
+## 网间拾径 · HarmonyOS client
 
-This branch includes a native ArkTS client for ARM64 phones and tablets running HarmonyOS 7 (API 26), including the MatePad mini. The client uses the HarmonyOS VPN extension for TUN routing and supports sing-box profiles and optional Clash profiles through Mihomo.
+网间拾径 is the native ArkTS client in this branch for ARM64 phones and tablets running HarmonyOS 7 (API 26), including the MatePad mini. It uses the HarmonyOS VPN extension for TUN routing and supports sing-box profiles and optional Clash profiles through Mihomo.
 
 - Choose **sing-box** or **Clash** under **Add profile**, then import a file, paste a configuration, or add an HTTPS subscription. The configuration list and connection screen show the selected engine.
 - sing-box profiles use the existing JSON editor with syntax highlighting, line numbers, and formatting. Clash profiles support a rule editor, Rule / Global / Direct modes, and a live connection list. Both engines support outbound selection and latency testing when the profile provides outbound groups.
-- On Windows, build the dual-engine HAP with `clients/harmonyos/scripts/build-hap.ps1 -WithMihomo` after staging the sing-box core.
+- On Windows, build the dual-engine HAP with `clients/harmonyos/scripts/build-hap.ps1 -WithMihomo` after staging the sing-box core. Pass `-MihomoGeoIPDb` with a local `Country.mmdb` file to make GEOIP rules available on first launch without a database download.
 
 See the [HarmonyOS client guide](clients/harmonyos/README.md) for configuration, Windows build steps, debug signing, and on-device testing.
 

@@ -6,29 +6,29 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'none'; form-action 'none'; base-uri 'none'">
   <title>配置编辑器</title>
   <style>
-    :root{color-scheme:dark;--bg:#101a32;--panel:#172447;--line:#324469;--text:#e8edf7;--muted:#aab8d1;--mint:#92f0ce;--error:#ffb7ae}
+    :root{color-scheme:dark;--bg:#14201D;--panel:#233D32;--line:#345747;--text:#E4EEE7;--muted:#A1B8AB;--mint:#DCEEE6;--error:#ffb7ae}
     *{box-sizing:border-box}
     body{margin:0;height:100dvh;display:flex;flex-direction:column;background:var(--bg);color:var(--text);font:14px system-ui,sans-serif;overflow:hidden}
     header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
     header strong{font-size:15px;white-space:nowrap}
     .actions{display:flex;gap:8px}
     button{border:1px solid var(--line);border-radius:9px;min-height:42px;padding:0 12px;background:transparent;color:var(--text);font:600 14px system-ui,sans-serif;white-space:nowrap}
-    button.primary{background:var(--mint);color:#142542;border-color:transparent}
+    button.primary{background:var(--mint);color:#233D32;border-color:transparent}
     button:disabled{opacity:.5}
     button:focus-visible,textarea:focus-visible{outline:2px solid var(--mint);outline-offset:-2px}
     main{display:flex;flex:1;min-height:0;position:relative}
     pre,textarea{margin:0;border:0;font:14px/23px ui-monospace,'Courier New',monospace;letter-spacing:0;tab-size:2;font-variant-ligatures:none;white-space:pre}
-    #gutter{width:45px;flex:none;overflow:hidden;padding:12px 8px 12px 0;text-align:right;color:var(--muted);background:#131f3b;border-right:1px solid var(--line)}
+    #gutter{width:45px;flex:none;overflow:hidden;padding:12px 8px 12px 0;text-align:right;color:var(--muted);background:#20332B;border-right:1px solid var(--line)}
     .document{position:relative;flex:1;min-width:0}
     #paint,#source{position:absolute;inset:0;width:100%;height:100%;padding:12px;overflow:auto}
     #paint{pointer-events:none;scrollbar-width:none}
     #paint::-webkit-scrollbar{display:none}
     #source{resize:none;background:transparent;color:transparent;-webkit-text-fill-color:transparent;caret-color:var(--mint);outline:none}
     #source::placeholder{-webkit-text-fill-color:var(--muted)}
-    #source::selection{background:#48619199}
+    #source::selection{background:#53796699}
     body.plain #source{color:var(--text);-webkit-text-fill-color:var(--text)}
     body.plain #paint{display:none}
-    .key{color:#83c5ff}.string{color:#92f0ce}.number{color:#f4c486}.literal{color:#e9b4fc}
+    .key{color:#83c5ff}.string{color:#DCEEE6}.number{color:#f4c486}.literal{color:#e9b4fc}
     footer{display:flex;flex-direction:column;gap:7px;min-height:34px;padding:8px 14px;border-top:1px solid var(--line);background:var(--panel);color:var(--muted);font-size:12px}
     #status.error{color:var(--error)}
     #adapt{text-align:left;align-self:flex-start}

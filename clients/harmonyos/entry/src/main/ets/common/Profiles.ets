@@ -228,11 +228,13 @@ export async function fetchProfile(url: string, type: ProfileType, directory: st
     if (response.responseCode !== 200 || typeof response.result !== 'string') {
       throw new Error('订阅下载失败');
     }
+    console.info('Subscription download finished');
     if (type === ProfileType.Mihomo) {
       await validateMihomoProfile(response.result, directory);
     } else {
       validateProfile(response.result);
     }
+    console.info('Subscription validation finished');
     return response.result;
   } finally {
     request.destroy();

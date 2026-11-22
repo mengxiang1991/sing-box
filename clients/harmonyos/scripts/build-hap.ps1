@@ -1,6 +1,7 @@
 param(
     [string]$DevEco = 'C:\Program Files\Huawei\DevEco Studio',
-    [switch]$WithMihomo
+    [switch]$WithMihomo,
+    [string]$MihomoGeoIPDb
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,9 +13,19 @@ if (!(Test-Path -LiteralPath $core)) {
 if ($WithMihomo) {
     & (Join-Path $PSScriptRoot 'check-mihomo.ps1') -DevEcoSdk (Join-Path $DevEco 'sdk') -Stage
 }
+if ($MihomoGeoIPDb -and !$WithMihomo) {
+    throw '-MihomoGeoIPDb requires -WithMihomo.'
+}
+$geoResource = Join-Path $clientRoot 'entry/src/main/resources/rawfile/mihomo-country.mmdb'
+$stagedGeoIP = $false
 
 Push-Location $clientRoot
 try {
+    if ($MihomoGeoIPDb) {
+        if (Test-Path -LiteralPath $geoResource) { throw "A GEOIP resource is already staged: $geoResource" }
+        $stagedGeoIP = $true
+        Copy-Item -LiteralPath $MihomoGeoIPDb -Destination $geoResource
+    }
     if (!(Test-Path -LiteralPath 'build-profile.json5')) {
         Copy-Item -LiteralPath 'build-profile.example.json5' -Destination 'build-profile.json5'
     }
@@ -37,5 +48,8 @@ try {
     & $node (Join-Path $DevEco 'tools/hvigor/hvigor/bin/hvigor.js') --mode module -p product=default -p module=entry@default assembleHap --no-daemon
     if ($LASTEXITCODE -ne 0) { throw 'Could not assemble the HarmonyOS HAP.' }
 } finally {
+    if ($stagedGeoIP -and (Test-Path -LiteralPath $geoResource)) {
+        Remove-Item -LiteralPath $geoResource
+    }
     Pop-Location
 }

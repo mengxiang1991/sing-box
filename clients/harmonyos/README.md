@@ -1,6 +1,8 @@
-# sing-box 鸿蒙客户端
+# 网间拾径
 
-适用于运行 HarmonyOS 7（API 26）的 ARM64 手机和平板，已在 Mate 70 Pro 和 MatePad mini 上验证。界面使用 ArkTS，系统 VPN 扩展创建 TUN，sing-box 内核从本仓库源码编译。
+<img src="AppScope/resources/base/media/app_icon.svg" alt="网间拾径应用图标" width="88" height="88">
+
+网间拾径是适用于 HarmonyOS 7（API 26）的原生代理客户端，已在 Mate 70 Pro 和 MatePad mini 上验证。应用使用 ArkTS 和系统 VPN 扩展，支持 sing-box 配置，也可在打包 Mihomo 后支持 Clash 配置。
 
 ## 导入配置和连接
 
@@ -20,7 +22,7 @@
 
 鸿蒙系统管理 TUN、地址和路由。Mihomo 运行时使用鸿蒙的虚拟网卡，并关闭桌面配置里的代理监听端口、外部控制面板和系统路由修改。依赖桌面本地文件的提供者需要相应资源，推荐使用 HTTPS 或内联提供者。Clash Verge Rev 的桌面脚本、配置合并和 WebDAV 同步不属于 YAML 内核功能。
 
-系统将 sing-box 自身的连接排除在 VPN 路由之外，避免出站流量回到 TUN。对于包含 HTTP、SOCKS 或 mixed 入站、同时缺少 DNS 段的配置，客户端启动时会使用底层网络的 DNS，并为 TUN 添加域名识别和 DNS 接管规则。
+系统将网间拾径自身的连接排除在 VPN 路由之外，避免出站流量回到 TUN。对于包含 HTTP、SOCKS 或 mixed 入站、同时缺少 DNS 段的 sing-box 配置，客户端启动时会使用底层网络的 DNS，并为 TUN 添加域名识别和 DNS 接管规则。
 
 在这类桌面配置中，匹配简单 `domain` 或 `domain_suffix` 规则并直达 Shadowsocks 出站的域名使用 FakeIP。内核恢复域名后将其交给节点解析，其他域名继续使用底层网络的 DNS。这些调整只应用于启动时的配置副本，用户提供的 JSON 和显式 DNS 配置会保留。
 
@@ -36,6 +38,12 @@
 
 需要同时支持 sing-box 和 Clash 时，将最后一条构建命令替换为 `./clients/harmonyos/scripts/build-hap.ps1 -WithMihomo`。该选项会编译固定版本的 Mihomo 并随 HAP 打包。
 
+含 `GEOIP` 规则的 Clash 配置首次使用时需要 IP 地理数据库。如果设备无法下载数据库，可在打包时附带完整的 `Country.mmdb`。可以使用桌面 Clash Verge Rev 已下载的文件，或从 [MetaCubeX 数据库发布页](https://github.com/MetaCubeX/meta-rules-dat#下载地址) 获取。应用在缺少 `Country.mmdb` 时复制随包附带的文件。
+
+```powershell
+./clients/harmonyos/scripts/build-hap.ps1 -WithMihomo -MihomoGeoIPDb 'C:\path\to\Country.mmdb'
+```
+
 DevEco Studio 装在其他位置时，可以用 `-DevEcoSdk` 和 `-DevEco` 指定路径。第一步从源码构建固定版本的 [OpenHarmony Go 工具链](https://github.com/star4277/ohos-go/tree/19667c7abfc332f848b5bd1f293e4aeb0e9991a9)。第二步编译内核，并检查 ARM64 ELF 和 TLS 重定位。HAP 输出在 `clients/harmonyos/entry/build/default/outputs/default/`。
 
 真机调试时，用 DevEco Studio 打开 `clients/harmonyos`。在手机或平板开启开发者模式和 USB 调试，在 **Project Structure → Signing Configs** 为 `com.sagernet.singbox.harmony` 配置自动调试签名。确认工程级 `build-profile.json5` 的 `default` 产品引用了已生成的 `signingConfig`。新增平板时，调试 Profile 需要包含该平板的 UDID。可用 DevEco Studio 的 **Run** 部署，也可重新构建后安装签名包。
@@ -50,5 +58,5 @@ hdc -t $device install -r clients/harmonyos/entry/build/default/outputs/default/
 
 - 先导入 [直连测试配置](direct-test.json)，连接后用手机或平板的浏览器访问普通 HTTPS 网站。断开后，确认 VPN 图标消失且浏览器仍能联网。这份配置只需验证 TUN 和直连，无需代理节点。
 - 再用自己的配置测试代理站点。如果直连正常、只有代理站点超时，先核对域名是否命中代理规则，再检查当前网络能否连到节点的 TCP 端口。配置校验通过只说明内核能加载配置。
-- 如果连接报错 `2203002`，在系统设置中搜索 **VPN**，断开占用连接的 VPN 后重试。如果列表为空且错误持续，可重启设备，再打开 sing-box 连接。
+- 如果连接报错 `2203002`，在系统设置中搜索 **VPN**，断开占用连接的 VPN 后重试。如果列表为空且错误持续，可重启设备，再打开网间拾径连接。
 - 订阅应返回完整的 sing-box JSON 或 Mihomo YAML。添加时先选对应的配置类型，再填入订阅地址。`ss://` 等单节点链接和按应用分流暂不支持。

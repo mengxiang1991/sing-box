@@ -4,6 +4,7 @@ import nativeCore from 'libsb_harmony.so';
 import mihomoCore from 'libmh_harmony.so';
 import { BUNDLE_NAME, LiveConnection, NodeGroups, readNodeCommand, stopRequested, vpnWant, writeStatus } from '../common/Files';
 import { activeProfile, loadProfiles, prepareVpnProfile, ProfileType, profileType } from '../common/Profiles';
+import { seedMihomoGeoIP } from '../common/MihomoGeoIP';
 
 interface TunPlan {
   addresses: string[];
@@ -142,6 +143,10 @@ export default class VpnAbility extends VpnExtensionAbility {
       const profile = activeProfile(loadProfiles(directory));
       if (profile === undefined) { throw new Error('没有选中的配置'); }
       this.mihomo = profileType(profile) === ProfileType.Mihomo;
+      if (this.mihomo) {
+        stage = '准备 GEOIP 数据库';
+        await seedMihomoGeoIP(directory, this.context.resourceManager);
+      }
       stage = '查询默认网络';
       const network = await connection.getDefaultNet();
       const properties = await connection.getConnectionProperties(network);

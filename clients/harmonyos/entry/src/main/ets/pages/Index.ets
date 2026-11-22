@@ -7,6 +7,7 @@ import { webview } from '@kit.ArkWeb';
 import { util } from '@kit.ArkTS';
 import mihomoCore from 'libmh_harmony.so';
 import { JsonEditorBridge } from '../common/JsonEditorBridge';
+import { seedMihomoGeoIP } from '../common/MihomoGeoIP';
 import { LiveConnection, MAX_CONFIG_BYTES, NodeCommand, NodeGroup, NodeItem, readStatus, readText, requestStop, vpnWant,
   writeNodeCommand } from '../common/Files';
 import { activeProfile, checkProfile, fetchProfile, loadProfiles, Profile, Profiles, ProfileType, profileType,
@@ -218,6 +219,9 @@ struct Index {
       const url = id ? selected?.url : this.subscription.trim();
       if (!url) { return; }
       const type = selected ? profileType(selected) : this.addType;
+      if (type === ProfileType.Mihomo) {
+        await seedMihomoGeoIP(this.context().filesDir, this.context().resourceManager);
+      }
       const config = await fetchProfile(url, type, this.context().filesDir);
       if (selected !== undefined) {
         const replacement: Profile = { id: selected.id, name: selected.name, url: url, config: config, type: type };
@@ -329,6 +333,7 @@ struct Index {
     }
     this.busy = true;
     try {
+      await seedMihomoGeoIP(this.context().filesDir, this.context().resourceManager);
       await validateMihomoProfile(config, this.context().filesDir);
       if (this.editingProfileId === '') {
         this.addProfile(`Clash 配置 ${this.profiles.items.length + 1}`, config, undefined, ProfileType.Mihomo);
@@ -514,13 +519,13 @@ struct Index {
 
   @Builder
   pageHeader(title: string) {
-    Text(title).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#172447').width('100%')
+    Text(title).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#233D32').width('100%')
   }
 
   @Builder
   modeButton(label: string, mode: string) {
-    Button(label).layoutWeight(1).height(40).fontColor('#172447')
-      .backgroundColor(this.mihomoMode === mode ? '#92F0CE' : '#E3EBF7')
+    Button(label).layoutWeight(1).height(40).fontColor('#233D32')
+      .backgroundColor(this.mihomoMode === mode ? '#DCEEE6' : '#EAF2ED')
       .enabled(this.pendingNodeCommand === 0)
       .onClick(() => { this.controlNode('mode', '', mode); })
   }
@@ -528,16 +533,16 @@ struct Index {
   @Builder
   liveConnections() {
     Column({ space: 10 }) {
-      Text('实时连接').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#172447')
+      Text('实时连接').fontSize(17).fontWeight(FontWeight.Bold).fontColor('#233D32')
       if (this.connections.length === 0) {
-        Text('暂无活动连接').fontSize(14).fontColor('#51627E')
+        Text('暂无活动连接').fontSize(14).fontColor('#5C7065')
       }
       ForEach(this.connections, (item: LiveConnection) => {
         Row({ space: 8 }) {
           Column({ space: 4 }) {
-            Text(item.destination).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor('#172447')
+            Text(item.destination).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor('#233D32')
             Text(item.network + ' · ' + (item.rule || '直连') + ' · ↓ ' + Math.round(item.download / 1024) + ' KB')
-              .fontSize(13).fontColor('#51627E').maxLines(1)
+              .fontSize(13).fontColor('#5C7065').maxLines(1)
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           Button('关闭').height(38).backgroundColor('#FFF0EF').fontColor('#963125')
             .enabled(this.pendingNodeCommand === 0)
@@ -551,26 +556,26 @@ struct Index {
   engineBadge(type: ProfileType) {
     Text(profileTypeLabel(type)).fontSize(12).fontWeight(FontWeight.Medium)
       .padding({ left: 9, right: 9, top: 4, bottom: 4 }).borderRadius(6)
-      .fontColor(type === ProfileType.Mihomo ? '#54398B' : '#174C3F')
-      .backgroundColor(type === ProfileType.Mihomo ? '#EEE6FC' : '#DBF8EE')
+      .fontColor(type === ProfileType.Mihomo ? '#54398B' : '#245D4C')
+      .backgroundColor(type === ProfileType.Mihomo ? '#EEE6FC' : '#DCEEE6')
   }
 
   @Builder
   connectionPage() {
     Scroll() {
       Column({ space: 20 }) {
-        this.pageHeader('连接')
+        Text($r('app.string.app_name')).fontSize(30).fontWeight(FontWeight.Bold).fontColor('#233D32').width('100%')
         Column({ space: 12 }) {
           Row({ space: 8 }) {
-            Circle().width(8).height(8).fill(this.state === 'connected' ? '#92F0CE' : '#AAB8D1')
-            Text('VPN').fontSize(14).fontColor('#C7D4E9')
+            Circle().width(8).height(8).fill(this.state === 'connected' ? '#DCEEE6' : '#A1B8AB')
+            Text('VPN').fontSize(14).fontColor('#C8DBCF')
             Blank()
             if (this.state === 'connected') {
-              Text(this.duration()).fontSize(15).fontColor('#92F0CE').accessibilityDescription('连接时长')
+              Text(this.duration()).fontSize(15).fontColor('#DCEEE6').accessibilityDescription('连接时长')
             }
           }.width('100%')
           Text(this.label()).fontSize(36).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
-          Divider().color('#324469').margin({ top: 4, bottom: 4 })
+          Divider().color('#345747').margin({ top: 4, bottom: 4 })
           Row({ space: 10 }) {
             Text(activeProfile(this.profiles)?.name ?? '请先添加配置').maxLines(1).layoutWeight(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(16).fontColor('#DFE8F7')
@@ -580,19 +585,19 @@ struct Index {
           }.width('100%')
           if (this.state === 'connected' && this.nodeGroups[0]?.selected) {
             Text('当前节点 · ' + this.nodeGroups[0].selected).maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(14).fontColor('#C7D4E9')
+              .textOverflow({ overflow: TextOverflow.Ellipsis }).fontSize(14).fontColor('#C8DBCF')
           }
           Row({ space: 10 }) {
             Button(this.state === 'connected' ? '断开' : this.state === 'starting' ? '取消连接' : '连接')
-              .layoutWeight(1).height(48).fontColor('#172447').backgroundColor('#92F0CE')
+              .layoutWeight(1).height(48).fontColor('#233D32').backgroundColor('#DCEEE6')
               .enabled(this.profiles.active.length > 0 && !this.busy && this.state !== 'stopping')
               .onClick(() => { this.toggle(); })
             if (this.state === 'connected') {
-              Button('重连').height(48).backgroundColor('#324469').fontColor('#FFFFFF')
+              Button('重连').height(48).backgroundColor('#345747').fontColor('#FFFFFF')
                 .enabled(!this.busy).onClick(() => { this.reconnect(); })
             }
           }.width('100%').margin({ top: 6 })
-        }.width('100%').padding(22).alignItems(HorizontalAlign.Start).backgroundColor('#172447').borderRadius(22)
+        }.width('100%').padding(22).alignItems(HorizontalAlign.Start).backgroundColor('#233D32').borderRadius(22)
         if (this.state === 'connected' && profileType(activeProfile(this.profiles)) === ProfileType.Mihomo && this.mihomoMode) {
           Row({ space: 8 }) {
             this.modeButton('规则', 'rule')
@@ -603,7 +608,7 @@ struct Index {
         }
         if (this.state === 'stopped') {
           Button(this.profiles.active ? '切换配置' : '添加配置').width('100%').height(44)
-            .fontColor('#172447').backgroundColor('#E3EBF7')
+            .fontColor('#233D32').backgroundColor('#EAF2ED')
             .onClick(() => {
               this.activeTab = 1;
               if (!this.profiles.active) { this.openAddProfile(); }
@@ -611,10 +616,10 @@ struct Index {
         }
         if (this.errors.length > 0) {
           Column({ space: 8 }) {
-            Text('最近错误').fontSize(14).fontWeight(FontWeight.Medium).fontColor('#51627E')
+            Text('最近错误').fontSize(14).fontWeight(FontWeight.Medium).fontColor('#5C7065')
             Text(this.errors[0].message).fontSize(15).fontColor('#963125').maxLines(3)
-            Button('查看日志', { type: ButtonType.Normal }).height(40).fontColor('#172447')
-              .backgroundColor('#E3EBF7').borderRadius(10).onClick(() => { this.activeTab = 3; })
+            Button('查看日志', { type: ButtonType.Normal }).height(40).fontColor('#233D32')
+              .backgroundColor('#EAF2ED').borderRadius(10).onClick(() => { this.activeTab = 3; })
           }.alignItems(HorizontalAlign.Start).width('100%')
         }
       }.width('100%').constraintSize({ maxWidth: 560 }).alignItems(HorizontalAlign.Start).padding(20)
@@ -626,45 +631,45 @@ struct Index {
     Scroll() {
       Column({ space: 18 }) {
         Row({ space: 12 }) {
-          Text('配置').fontSize(30).fontWeight(FontWeight.Bold).fontColor('#172447').layoutWeight(1)
-          Button('添加配置').height(44).backgroundColor('#172447').fontColor('#FFFFFF')
+          Text('配置').fontSize(30).fontWeight(FontWeight.Bold).fontColor('#233D32').layoutWeight(1)
+          Button('添加配置').height(44).backgroundColor('#233D32').fontColor('#FFFFFF')
             .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.openAddProfile(); })
         }.width('100%')
         if (this.state !== 'stopped') {
-          Text('断开 VPN 后可导入、编辑或切换配置。').fontSize(14).fontColor('#51627E')
+          Text('断开 VPN 后可导入、编辑或切换配置。').fontSize(14).fontColor('#5C7065')
         }
         if (this.addError) {
           Text(this.addError).fontSize(14).fontColor('#963125').width('100%')
         }
 
         if (this.profiles.items.length === 0) {
-          Text('暂无配置，可以从文件、剪贴板或订阅添加。').fontSize(15).fontColor('#51627E')
+          Text('暂无配置，可以从文件、剪贴板或订阅添加。').fontSize(15).fontColor('#5C7065')
         }
         ForEach(this.profiles.items, (item: Profile) => {
           Column({ space: 11 }) {
             Row({ space: 8 }) {
               Column({ space: 5 }) {
-                Text(item.name).fontSize(17).fontWeight(FontWeight.Medium).fontColor('#172447')
+                Text(item.name).fontSize(17).fontWeight(FontWeight.Medium).fontColor('#233D32')
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Row({ space: 8 }) {
                   this.engineBadge(profileType(item))
-                  Text(item.url ? '订阅' : '本地').fontSize(13).fontColor('#51627E')
+                  Text(item.url ? '订阅' : '本地').fontSize(13).fontColor('#5C7065')
                 }
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
               if (this.profiles.active === item.id) {
                 Text('当前配置').padding({ left: 10, right: 10, top: 5, bottom: 5 }).fontSize(12)
-                  .fontColor('#174C3F').backgroundColor('#DBF8EE').borderRadius(8)
+                  .fontColor('#245D4C').backgroundColor('#DCEEE6').borderRadius(8)
               }
             }.width('100%')
             Divider().color('#E8EEF7')
             Row({ space: 8 }) {
               if (this.profiles.active !== item.id) {
-                Button('选用').height(40).backgroundColor('#172447').fontColor('#FFFFFF')
+                Button('选用').height(40).backgroundColor('#233D32').fontColor('#FFFFFF')
                   .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.changeProfile(item.id, false); })
               }
-              Button('编辑').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+              Button('编辑').height(40).backgroundColor('#EAF2ED').fontColor('#233D32')
                 .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.editProfile(item); })
-              Button('重命名').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+              Button('重命名').height(40).backgroundColor('#EAF2ED').fontColor('#233D32')
                 .enabled(!this.busy).onClick(() => { this.openRename(item); })
               Blank()
               Button('移除').height(40).backgroundColor('#FFF0EF').fontColor('#963125')
@@ -678,7 +683,7 @@ struct Index {
                 })
             }.width('100%')
             if (item.url) {
-              Button('更新订阅').height(40).backgroundColor('#EFF3FA').fontColor('#172447')
+              Button('更新订阅').height(40).backgroundColor('#F4F5F2').fontColor('#233D32')
                 .enabled(!this.busy && this.state === 'stopped').onClick(() => { this.downloadProfile(item.id); })
             }
           }.padding(16).width('100%').alignItems(HorizontalAlign.Start).backgroundColor('#FFFFFF').borderRadius(16)
@@ -693,38 +698,38 @@ struct Index {
       Column({ space: 16 }) {
         this.pageHeader('节点')
         if (this.state === 'connected' && profileType(activeProfile(this.profiles)) === ProfileType.Mihomo) {
-          Button('请求刷新节点和规则来源').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+          Button('请求刷新节点和规则来源').height(40).backgroundColor('#EAF2ED').fontColor('#233D32')
             .enabled(this.pendingNodeCommand === 0).onClick(() => { this.controlNode('providers', ''); })
         }
         if (this.state !== 'connected') {
-          Text('连接后可查看节点组、测速和切换。').fontSize(15).fontColor('#51627E')
+          Text('连接后可查看节点组、测速和切换。').fontSize(15).fontColor('#5C7065')
         } else if (this.nodeGroups.length === 0) {
-          Text('当前配置没有出站节点组。').fontSize(15).fontColor('#51627E')
+          Text('当前配置没有出站节点组。').fontSize(15).fontColor('#5C7065')
         } else {
           ForEach(this.nodeGroups, (group: NodeGroup) => {
             Column({ space: 10 }) {
               Row({ space: 8 }) {
-                Text(group.tag).layoutWeight(1).fontSize(17).fontWeight(FontWeight.Bold).fontColor('#172447')
+                Text(group.tag).layoutWeight(1).fontSize(17).fontWeight(FontWeight.Bold).fontColor('#233D32')
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Button('测速').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+                Button('测速').height(40).backgroundColor('#EAF2ED').fontColor('#233D32')
                   .enabled(this.pendingNodeCommand === 0).onClick(() => { this.controlNode('test', group.tag); })
               }.width('100%')
               ForEach(group.items ?? [], (node: NodeItem) => {
                 Divider().color('#E8EEF7')
                 Row({ space: 8 }) {
                   Column({ space: 4 }) {
-                    Text(node.tag).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor('#172447')
+                    Text(node.tag).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor('#233D32')
                     Text(node.type + ' · ' + (node.urlTestDelay ? node.urlTestDelay + ' ms' : '暂无测速结果'))
-                      .fontSize(13).fontColor('#51627E')
+                      .fontSize(13).fontColor('#5C7065')
                     if (node.dialerProxy) {
-                      Text('链式前置 · ' + node.dialerProxy).fontSize(13).fontColor('#51627E')
+                      Text('链式前置 · ' + node.dialerProxy).fontSize(13).fontColor('#5C7065')
                         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
                   }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                   if (node.tag === group.selected) {
-                    Text('已选').padding(7).fontSize(12).fontColor('#174C3F').backgroundColor('#DBF8EE').borderRadius(8)
+                    Text('已选').padding(7).fontSize(12).fontColor('#245D4C').backgroundColor('#DCEEE6').borderRadius(8)
                   } else if (group.selectable) {
-                    Button('切换').height(40).backgroundColor('#E3EBF7').fontColor('#172447')
+                    Button('切换').height(40).backgroundColor('#EAF2ED').fontColor('#233D32')
                       .enabled(this.pendingNodeCommand === 0)
                       .onClick(() => { this.controlNode('select', group.tag, node.tag); })
                   }
@@ -743,14 +748,14 @@ struct Index {
       Column({ space: 16 }) {
         this.pageHeader('日志')
         if (this.errors.length === 0) {
-          Text('暂无错误记录。').fontSize(15).fontColor('#51627E')
+          Text('暂无错误记录。').fontSize(15).fontColor('#5C7065')
         } else {
-          Button(this.copied ? '已复制' : '复制诊断信息').height(44).backgroundColor('#172447').fontColor('#FFFFFF')
+          Button(this.copied ? '已复制' : '复制诊断信息').height(44).backgroundColor('#233D32').fontColor('#FFFFFF')
             .onClick(() => { this.copyErrors(); })
           Column({ space: 10 }) {
             ForEach(this.errors, (entry: ErrorEntry) => {
               Row({ space: 12 }) {
-                Text(entry.time).fontSize(12).fontColor('#51627E')
+                Text(entry.time).fontSize(12).fontColor('#5C7065')
                 Text(entry.message).layoutWeight(1).fontSize(14).fontColor('#963125')
               }.width('100%').alignItems(VerticalAlign.Top)
               Divider().color('#E8EEF7')
@@ -764,10 +769,10 @@ struct Index {
   @Builder
   tab(label: string, index: number) {
     Column({ space: 6 }) {
-      Divider().strokeWidth(3).width(22).color(this.activeTab === index ? '#247F67' : '#FFFFFF')
       Text(label).fontSize(14).fontWeight(this.activeTab === index ? FontWeight.Bold : FontWeight.Medium)
-        .fontColor(this.activeTab === index ? '#174C3F' : '#51627E')
-    }.width('100%').height(54).justifyContent(FlexAlign.Center)
+        .fontColor(this.activeTab === index ? '#245D4C' : '#5C7065')
+    }.width('92%').height(40).justifyContent(FlexAlign.Center)
+      .backgroundColor(this.activeTab === index ? '#DCEEE6' : Color.Transparent).borderRadius(20)
   }
 
   @Builder
@@ -775,15 +780,15 @@ struct Index {
     Column() {
       Row({ space: 12 }) {
         Button('返回', { type: ButtonType.Normal }).height(42).borderRadius(9)
-          .backgroundColor('#253657').fontColor('#E8EDF7').onClick(() => { this.leaveJsonEditor(); })
+          .backgroundColor('#304B3F').fontColor('#E4EEE7').onClick(() => { this.leaveJsonEditor(); })
         Column({ space: 4 }) {
           Text(this.editorTitle).fontSize(18).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.editingProfileId && this.profiles.items.find((item: Profile) => item.id === this.editingProfileId)?.url) {
-            Text('手动更新订阅会覆盖本地修改').fontSize(12).fontColor('#C7D4E9')
+            Text('手动更新订阅会覆盖本地修改').fontSize(12).fontColor('#C8DBCF')
           }
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-      }.width('100%').padding({ left: 14, right: 14, top: 10, bottom: 10 }).backgroundColor('#172447')
+      }.width('100%').padding({ left: 14, right: 14, top: 10, bottom: 10 }).backgroundColor('#233D32')
       Web({ src: $rawfile('json-editor.html'), controller: this.editorController })
         .javaScriptAccess(true)
         .domStorageAccess(false)
@@ -796,7 +801,7 @@ struct Index {
           controller: this.editorController
         })
         .width('100%').layoutWeight(1)
-    }.width('100%').height('100%').backgroundColor('#101A32')
+    }.width('100%').height('100%').backgroundColor('#14201D')
   }
 
   @Builder
@@ -804,7 +809,7 @@ struct Index {
     Button(profileTypeLabel(type), { type: ButtonType.Normal }).layoutWeight(1).height(44).borderRadius(8)
       .fontWeight(this.addType === type ? FontWeight.Bold : FontWeight.Medium)
       .fontColor(this.addType === type ? '#FFFFFF' : '#384A67')
-      .backgroundColor(this.addType === type ? '#172447' : '#EFF3FA')
+      .backgroundColor(this.addType === type ? '#233D32' : '#F4F5F2')
       .enabled(!this.busy)
       .onClick(() => { this.addType = type; this.addError = ''; })
   }
@@ -814,13 +819,13 @@ struct Index {
     Scroll() {
       Column({ space: 18 }) {
         Row({ space: 10 }) {
-          Button('返回', { type: ButtonType.Normal }).height(44).borderRadius(8).backgroundColor('#E3EBF7')
-            .fontColor('#172447').enabled(!this.busy)
+          Button('返回', { type: ButtonType.Normal }).height(44).borderRadius(8).backgroundColor('#EAF2ED')
+            .fontColor('#233D32').enabled(!this.busy)
             .onClick(() => { this.showAddProfile = false; this.addError = ''; })
-          Text('添加配置').fontSize(26).fontWeight(FontWeight.Bold).fontColor('#172447').layoutWeight(1)
+          Text('添加配置').fontSize(26).fontWeight(FontWeight.Bold).fontColor('#233D32').layoutWeight(1)
         }.width('100%')
         Column({ space: 8 }) {
-          Text('配置类型').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#172447')
+          Text('配置类型').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#233D32')
           Row({ space: 8 }) {
             this.addTypeButton(ProfileType.SingBox)
             this.addTypeButton(ProfileType.Mihomo)
@@ -828,10 +833,10 @@ struct Index {
         }.width('100%').alignItems(HorizontalAlign.Start)
         Column({ space: 12 }) {
           Row({ space: 8 }) {
-            Button('导入文件').layoutWeight(1).height(44).backgroundColor('#E3EBF7').fontColor('#172447')
+            Button('导入文件').layoutWeight(1).height(44).backgroundColor('#EAF2ED').fontColor('#233D32')
               .enabled(!this.busy && this.state === 'stopped')
               .onClick(() => { this.importConfig(this.addType === ProfileType.Mihomo); })
-            Button('粘贴配置').layoutWeight(1).height(44).backgroundColor('#E3EBF7').fontColor('#172447')
+            Button('粘贴配置').layoutWeight(1).height(44).backgroundColor('#EAF2ED').fontColor('#233D32')
               .enabled(!this.busy && this.state === 'stopped')
               .onClick(() => {
                 if (this.addType === ProfileType.Mihomo) {
@@ -842,13 +847,13 @@ struct Index {
               })
           }.width('100%')
           Divider().color('#E8EEF7')
-          Text('通过订阅添加').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#172447')
+          Text('通过订阅添加').fontSize(16).fontWeight(FontWeight.Bold).fontColor('#233D32')
           TextInput({ placeholder: '输入 HTTPS 订阅地址', text: this.subscription })
-            .width('100%').height(46).backgroundColor('#EFF3FA')
+            .width('100%').height(46).backgroundColor('#F4F5F2')
             .enabled(!this.busy)
             .onChange((value: string) => { this.subscription = value; this.addError = ''; })
           Button(this.busy ? '正在处理' : '添加订阅').width('100%').height(44)
-            .backgroundColor('#172447').fontColor('#FFFFFF')
+            .backgroundColor('#233D32').fontColor('#FFFFFF')
             .enabled(!this.busy && this.state === 'stopped' && this.subscription.trim().length > 0)
             .onClick(() => { this.downloadProfile(); })
         }.width('100%').padding(16).alignItems(HorizontalAlign.Start).backgroundColor('#FFFFFF').borderRadius(16)
@@ -856,7 +861,7 @@ struct Index {
           Text(this.addError).fontSize(14).fontColor('#963125').width('100%')
         }
       }.width('100%').constraintSize({ maxWidth: 560 }).padding(20)
-    }.width('100%').height('100%').align(Alignment.Top).backgroundColor('#F1F5FB')
+    }.width('100%').height('100%').align(Alignment.Top).backgroundColor('#F4F5F2')
   }
 
   @Builder
@@ -901,14 +906,14 @@ struct Index {
           Button('添加规则').width('100%').onClick(() => { this.rules = [...this.rules, '']; })
         }.width('100%')
       }.layoutWeight(1).width('100%').align(Alignment.Top)
-    }.padding(16).width('100%').height('100%').backgroundColor('#F1F5FB')
+    }.padding(16).width('100%').height('100%').backgroundColor('#F4F5F2')
   }
 
   build() {
     if (this.renameId) {
       Column() {
         this.renamePage()
-      }.width('100%').height('100%').backgroundColor('#F1F5FB')
+      }.width('100%').height('100%').backgroundColor('#F4F5F2')
     } else if (this.showRuleEditor) {
       this.ruleEditor()
     } else if (this.showYamlEditor) {
@@ -926,7 +931,7 @@ struct Index {
           .width('100%').layoutWeight(1).fontFamily('monospace')
           .enabled(!this.busy)
           .onChange((value: string) => { this.yamlText = value; this.yamlError = ''; })
-      }.padding(16).width('100%').height('100%').backgroundColor('#F1F5FB')
+      }.padding(16).width('100%').height('100%').backgroundColor('#F4F5F2')
     } else if (this.showJsonImport) {
       this.editorPage()
     } else if (this.showAddProfile) {
@@ -941,7 +946,7 @@ struct Index {
       .width('100%').height('100%').barMode(BarMode.Fixed)
       .barHeight(58).barBackgroundColor('#FFFFFF').scrollable(false)
       .onChange((index: number) => { this.activeTab = index; })
-      .backgroundColor('#F1F5FB')
+      .backgroundColor('#F4F5F2')
     }
   }
 }
