@@ -1,4 +1,4 @@
-export function checkProfile(config: string): boolean;
+export function checkProfile(config: string, directory: string): Promise<boolean>;
 export function start(config: string, directory: string): boolean;
 export function status(): string;
 export function setTunnel(fd: number): boolean;

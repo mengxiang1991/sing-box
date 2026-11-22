@@ -218,7 +218,7 @@ struct Index {
       const url = id ? selected?.url : this.subscription.trim();
       if (!url) { return; }
       const type = selected ? profileType(selected) : this.addType;
-      const config = await fetchProfile(url, type === ProfileType.Mihomo);
+      const config = await fetchProfile(url, type, this.context().filesDir);
       if (selected !== undefined) {
         const replacement: Profile = { id: selected.id, name: selected.name, url: url, config: config, type: type };
         const items = this.profiles.items.map((item: Profile) => item.id === selected.id ? replacement : item);
@@ -321,14 +321,15 @@ struct Index {
     this.showRuleEditor = false;
   }
 
-  private saveYaml(): void {
+  private async saveYaml(): Promise<void> {
     const config = this.yamlText.trim();
     if (this.state !== 'stopped' || new util.TextEncoder().encodeInto(config).byteLength > MAX_CONFIG_BYTES) {
       this.yamlError = '请断开 VPN 并确认配置不超过 4 MB';
       return;
     }
+    this.busy = true;
     try {
-      validateMihomoProfile(config);
+      await validateMihomoProfile(config, this.context().filesDir);
       if (this.editingProfileId === '') {
         this.addProfile(`Clash 配置 ${this.profiles.items.length + 1}`, config, undefined, ProfileType.Mihomo);
       } else {
@@ -346,6 +347,8 @@ struct Index {
       this.showAddProfile = false;
     } catch (error) {
       this.yamlError = (error as Error).message;
+    } finally {
+      this.busy = false;
     }
   }
 
@@ -391,7 +394,7 @@ struct Index {
       return true;
     }
     if (this.showYamlEditor) {
-      this.closeYamlEditor();
+      if (!this.busy) { this.closeYamlEditor(); }
       return true;
     }
     if (this.showJsonImport) {
@@ -911,16 +914,17 @@ struct Index {
     } else if (this.showYamlEditor) {
       Column({ space: 10 }) {
         Row({ space: 10 }) {
-          Button('返回').onClick(() => { this.closeYamlEditor(); })
+          Button('返回').enabled(!this.busy).onClick(() => { this.closeYamlEditor(); })
           Text(this.editorTitle).layoutWeight(1).fontSize(18).fontWeight(FontWeight.Bold)
-          Button('规则').onClick(() => { this.openRules(); })
-          Button('保存').onClick(() => { this.saveYaml(); })
+          Button('规则').enabled(!this.busy).onClick(() => { this.openRules(); })
+          Button(this.busy ? '校验中' : '保存').enabled(!this.busy).onClick(() => { this.saveYaml(); })
         }.width('100%')
         if (this.yamlError) {
           Text(this.yamlError).fontColor('#963125')
         }
         TextArea({ text: this.yamlText, placeholder: '粘贴 Clash 或 Mihomo YAML 配置' })
           .width('100%').layoutWeight(1).fontFamily('monospace')
+          .enabled(!this.busy)
           .onChange((value: string) => { this.yamlText = value; this.yamlError = ''; })
       }.padding(16).width('100%').height('100%').backgroundColor('#F1F5FB')
     } else if (this.showJsonImport) {

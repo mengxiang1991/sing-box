@@ -1,6 +1,7 @@
 #include "napi_helpers.h"
 #include <array>
 #include <dlfcn.h>
+#include <memory>
 
 namespace {
 void *MihomoSymbol(const char *name)
@@ -10,18 +11,54 @@ void *MihomoSymbol(const char *name)
     return library ? dlsym(library, name) : nullptr;
 }
 
+struct ProfileCheck {
+    std::string config;
+    std::string directory;
+    napi_deferred deferred = nullptr;
+    napi_async_work work = nullptr;
+    bool valid = false;
+};
+
+void ExecuteProfileCheck(napi_env, void *data)
+{
+    auto &job = *static_cast<ProfileCheck *>(data);
+    using CheckProfile = int (*)(char *, char *);
+    static auto check = reinterpret_cast<CheckProfile>(MihomoSymbol("MBCheckProfile"));
+    job.valid = check != nullptr && check(job.config.data(), job.directory.data()) == 0;
+}
+
+void CompleteProfileCheck(napi_env env, napi_status status, void *data)
+{
+    std::unique_ptr<ProfileCheck> job(static_cast<ProfileCheck *>(data));
+    napi_resolve_deferred(env, job->deferred, Boolean(env, status == napi_ok && job->valid));
+    napi_delete_async_work(env, job->work);
+}
+
 napi_value CheckMihomoProfile(napi_env env, napi_callback_info info)
 {
-    napi_value arg;
-    size_t count = 1;
-    std::string config;
-    if (napi_get_cb_info(env, info, &count, &arg, nullptr, nullptr) != napi_ok || count != 1
-        || !ReadString(env, arg, config, 4 * 1024 * 1024)) {
-        return Boolean(env, false);
+    std::array<napi_value, 2> args{};
+    size_t count = args.size();
+    auto job = std::make_unique<ProfileCheck>();
+    napi_value promise = nullptr;
+    if (napi_create_promise(env, &job->deferred, &promise) != napi_ok) {
+        return nullptr;
     }
-    using CheckProfile = int (*)(char *);
-    static auto check = reinterpret_cast<CheckProfile>(MihomoSymbol("MBCheckProfile"));
-    return Boolean(env, check != nullptr && check(config.data()) == 0);
+    if (napi_get_cb_info(env, info, &count, args.data(), nullptr, nullptr) != napi_ok || count != args.size()
+        || !ReadString(env, args[0], job->config, 4 * 1024 * 1024) || !ReadString(env, args[1], job->directory, 4096)) {
+        napi_resolve_deferred(env, job->deferred, Boolean(env, false));
+        return promise;
+    }
+    napi_value name = nullptr;
+    napi_create_string_utf8(env, "ValidateMihomoProfile", NAPI_AUTO_LENGTH, &name);
+    if (napi_create_async_work(env, nullptr, name, ExecuteProfileCheck, CompleteProfileCheck, job.get(), &job->work) == napi_ok) {
+        if (napi_queue_async_work(env, job->work) == napi_ok) {
+            job.release();
+            return promise;
+        }
+        napi_delete_async_work(env, job->work);
+    }
+    napi_resolve_deferred(env, job->deferred, Boolean(env, false));
+    return promise;
 }
 
 napi_value MihomoStart(napi_env env, napi_callback_info info)

@@ -209,13 +209,13 @@ export function validateProfile(config: string): void {
   checkProfile(config);
 }
 
-export function validateMihomoProfile(config: string): void {
-  if (!mihomoCore.checkProfile(config)) {
+export async function validateMihomoProfile(config: string, directory: string): Promise<void> {
+  if (!(await mihomoCore.checkProfile(config, directory))) {
     throw new Error('配置未通过 Mihomo 校验，请检查 Clash YAML 内容及应用是否已打包 Mihomo');
   }
 }
 
-export async function fetchProfile(url: string, mihomo: boolean = false): Promise<string> {
+export async function fetchProfile(url: string, type: ProfileType, directory: string): Promise<string> {
   if (!/^https:\/\/[^\s]+$/i.test(url)) {
     throw new Error('请输入 HTTPS 订阅地址');
   }
@@ -228,8 +228,8 @@ export async function fetchProfile(url: string, mihomo: boolean = false): Promis
     if (response.responseCode !== 200 || typeof response.result !== 'string') {
       throw new Error('订阅下载失败');
     }
-    if (mihomo) {
-      validateMihomoProfile(response.result);
+    if (type === ProfileType.Mihomo) {
+      await validateMihomoProfile(response.result, directory);
     } else {
       validateProfile(response.result);
     }
