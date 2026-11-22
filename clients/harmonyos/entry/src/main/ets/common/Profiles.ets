@@ -1,11 +1,28 @@
 import { http } from '@kit.NetworkKit';
+import mihomoCore from 'libmh_harmony.so';
 import { configPath, MAX_CONFIG_BYTES, readText, writeAtomic } from './Files';
+
+export enum ProfileType {
+  SingBox = 'sing-box',
+  Mihomo = 'mihomo'
+}
 
 export interface Profile {
   id: string;
   name: string;
   config: string;
   url?: string;
+  type?: ProfileType;
+  format?: string;
+}
+
+export function profileType(profile?: Profile): ProfileType {
+  const type = profile?.type ?? profile?.format;
+  return type === ProfileType.Mihomo ? ProfileType.Mihomo : ProfileType.SingBox;
+}
+
+export function profileTypeLabel(type: ProfileType): string {
+  return type === ProfileType.Mihomo ? 'Clash' : 'sing-box';
 }
 
 export interface Profiles {
@@ -192,7 +209,13 @@ export function validateProfile(config: string): void {
   checkProfile(config);
 }
 
-export async function fetchProfile(url: string): Promise<string> {
+export function validateMihomoProfile(config: string): void {
+  if (!mihomoCore.checkProfile(config)) {
+    throw new Error('配置未通过 Mihomo 校验，请检查 Clash YAML 内容及应用是否已打包 Mihomo');
+  }
+}
+
+export async function fetchProfile(url: string, mihomo: boolean = false): Promise<string> {
   if (!/^https:\/\/[^\s]+$/i.test(url)) {
     throw new Error('请输入 HTTPS 订阅地址');
   }
@@ -205,7 +228,11 @@ export async function fetchProfile(url: string): Promise<string> {
     if (response.responseCode !== 200 || typeof response.result !== 'string') {
       throw new Error('订阅下载失败');
     }
-    validateProfile(response.result);
+    if (mihomo) {
+      validateMihomoProfile(response.result);
+    } else {
+      validateProfile(response.result);
+    }
     return response.result;
   } finally {
     request.destroy();

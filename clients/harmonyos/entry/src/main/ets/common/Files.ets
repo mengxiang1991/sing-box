@@ -9,6 +9,7 @@ export interface NodeItem {
   tag: string;
   type: string;
   urlTestDelay?: number;
+  dialerProxy?: string;
 }
 
 export interface NodeGroup {
@@ -20,6 +21,15 @@ export interface NodeGroup {
 
 export interface NodeGroups {
   group?: NodeGroup[];
+}
+
+export interface LiveConnection {
+  id: string;
+  destination: string;
+  network: string;
+  rule: string;
+  upload: number;
+  download: number;
 }
 
 export interface NodeCommand {
@@ -49,6 +59,8 @@ export interface ViewState {
   groups?: NodeGroups;
   commandId?: number;
   networkError?: string;
+  mode?: string;
+  connections?: LiveConnection[];
 }
 
 export function vpnWant(): Want {
@@ -103,9 +115,10 @@ export function readStatus(directory: string): ViewState {
 }
 
 export function writeStatus(directory: string, state: string, error?: string, connectedAt?: number,
-  groups?: NodeGroups, commandId?: number, networkError?: string): void {
+  groups?: NodeGroups, commandId?: number, networkError?: string, mode?: string,
+  connections?: LiveConnection[]): void {
   const status: ViewState = { state: state, error: error, updated: Date.now(), connectedAt: connectedAt,
-    groups: groups, commandId: commandId, networkError: networkError };
+    groups: groups, commandId: commandId, networkError: networkError, mode: mode, connections: connections };
   writeAtomic(`${directory}/vpn-status.json`, JSON.stringify(status));
 }
 

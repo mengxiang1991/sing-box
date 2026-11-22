@@ -1,5 +1,8 @@
 {
   "name": "entry",
   "version": "0.1.0",
-  "dependencies": { "libsb_harmony.so": "file:./src/main/cpp/types/libsb_harmony" }
+  "dependencies": {
+    "libsb_harmony.so": "file:./src/main/cpp/types/libsb_harmony",
+    "libmh_harmony.so": "file:./src/main/cpp/types/libmh_harmony"
+  }
 }

@@ -1,5 +1,6 @@
 param(
-    [string]$DevEco = 'C:\Program Files\Huawei\DevEco Studio'
+    [string]$DevEco = 'C:\Program Files\Huawei\DevEco Studio',
+    [switch]$WithMihomo
 )
 
 $ErrorActionPreference = 'Stop'
@@ -7,6 +8,9 @@ $clientRoot = Split-Path $PSScriptRoot -Parent
 $core = Join-Path $clientRoot 'entry/libs/arm64-v8a/libsingbox.so'
 if (!(Test-Path -LiteralPath $core)) {
     throw 'Run scripts/check-core.ps1 -Stage to build the ARM64 sing-box library first.'
+}
+if ($WithMihomo) {
+    & (Join-Path $PSScriptRoot 'check-mihomo.ps1') -DevEcoSdk (Join-Path $DevEco 'sdk') -Stage
 }
 
 Push-Location $clientRoot

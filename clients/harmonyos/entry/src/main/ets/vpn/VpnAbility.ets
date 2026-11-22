@@ -1,8 +1,9 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { connection, vpnExtension, VpnExtensionAbility } from '@kit.NetworkKit';
 import nativeCore from 'libsb_harmony.so';
-import { BUNDLE_NAME, NodeGroups, readNodeCommand, stopRequested, vpnWant, writeStatus } from '../common/Files';
-import { activeProfile, loadProfiles, prepareVpnProfile } from '../common/Profiles';
+import mihomoCore from 'libmh_harmony.so';
+import { BUNDLE_NAME, LiveConnection, NodeGroups, readNodeCommand, stopRequested, vpnWant, writeStatus } from '../common/Files';
+import { activeProfile, loadProfiles, prepareVpnProfile, ProfileType, profileType } from '../common/Profiles';
 
 interface TunPlan {
   addresses: string[];
@@ -17,6 +18,8 @@ interface CoreState {
   tun?: TunPlan;
   groups?: NodeGroups;
   networkError?: string;
+  mode?: string;
+  connections?: LiveConnection[];
 }
 
 function parsePrefix(value: string): connection.LinkAddress {
@@ -59,6 +62,7 @@ export default class VpnAbility extends VpnExtensionAbility {
   private destroyTask?: Promise<void>;
   private shutdownReady: boolean = false;
   private shutdownError?: string;
+  private mihomo: boolean = false;
 
   onCreate(): void {
     this.run();
@@ -66,7 +70,7 @@ export default class VpnAbility extends VpnExtensionAbility {
 
   onDestroy(): void {
     this.stopping = true;
-    nativeCore.stop();
+    this.stopCore();
     this.destroyVpn().catch(() => {});
     if (this.shutdownReady) {
       this.publishStopped(this.shutdownError);
@@ -79,6 +83,18 @@ export default class VpnAbility extends VpnExtensionAbility {
     } catch (_) {
       // The UI also treats an expired heartbeat as a stopped extension.
     }
+  }
+
+  private stopCore(): void {
+    if (this.mihomo) {
+      mihomoCore.stop();
+    } else {
+      nativeCore.stop();
+    }
+  }
+
+  private coreState(): CoreState {
+    return JSON.parse(this.mihomo ? mihomoCore.status() : nativeCore.status()) as CoreState;
   }
 
   private destroyVpn(): Promise<void> {
@@ -125,15 +141,19 @@ export default class VpnAbility extends VpnExtensionAbility {
       writeStatus(directory, 'starting');
       const profile = activeProfile(loadProfiles(directory));
       if (profile === undefined) { throw new Error('没有选中的配置'); }
+      this.mihomo = profileType(profile) === ProfileType.Mihomo;
       stage = '查询默认网络';
       const network = await connection.getDefaultNet();
       const properties = await connection.getConnectionProperties(network);
       if (this.stopping || stopRequested(directory, startedAt)) { return; }
       stage = '准备 VPN 的 DNS 和路由';
-      const config = prepareVpnProfile(profile.config, properties.dnses.map((dns: connection.NetAddress) => dns.address));
+      const config = this.mihomo ? profile.config :
+        prepareVpnProfile(profile.config, properties.dnses.map((dns: connection.NetAddress) => dns.address));
       this.vpn = vpnExtension.createVpnConnection(this.context);
       stage = '启动内核';
-      if (!nativeCore.start(config, directory, properties.interfaceName, network.netId)) {
+      const started = this.mihomo ? mihomoCore.start(config, directory) :
+        nativeCore.start(config, directory, properties.interfaceName, network.netId);
+      if (!started) {
         throw new Error('无法启动内核');
       }
       let lastUpdate = 0;
@@ -143,7 +163,7 @@ export default class VpnAbility extends VpnExtensionAbility {
       let lastNetworkError: string | undefined;
       const deadline = Date.now() + 30000;
       while (!this.stopping && !stopRequested(directory, startedAt)) {
-        const current = JSON.parse(nativeCore.status()) as CoreState;
+        const current = this.coreState();
         if (current.state === 'stopped') {
           error = current.error;
           break;
@@ -157,7 +177,7 @@ export default class VpnAbility extends VpnExtensionAbility {
           await this.vpn.protectProcessNet();
           if (this.stopping || stopRequested(directory, startedAt)) { return; }
           stage = '交接 TUN';
-          if (!nativeCore.setTunnel(fd)) {
+          if (!(this.mihomo ? mihomoCore.setTunnel(fd) : nativeCore.setTunnel(fd))) {
             throw new Error('无法将系统 VPN 交给内核');
           }
         }
@@ -172,9 +192,12 @@ export default class VpnAbility extends VpnExtensionAbility {
           const command = readNodeCommand(directory);
           if (command !== undefined && command.id >= startedAt && command.id > commandId) {
             commandId = command.id;
-            const ok = nativeCore.control(command.action, command.group, command.node);
-            commandError = ok ? undefined : command.action === 'select' ? '切换失败，原节点保持选中' : '无法启动测速';
-            writeStatus(directory, current.state, commandError, connectedAt, current.groups, commandId);
+            const ok = this.mihomo ? mihomoCore.control(command.action, command.group, command.node) :
+              nativeCore.control(command.action, command.group, command.node);
+            commandError = ok ? undefined : command.action === 'select' ? '切换失败，原节点保持选中' :
+              command.action === 'test' ? '无法启动测速' : '连接操作失败';
+            writeStatus(directory, current.state, commandError, connectedAt, current.groups, commandId,
+              current.networkError, current.mode, current.connections);
             commandError = undefined;
             lastUpdate = Date.now();
           }
@@ -182,7 +205,7 @@ export default class VpnAbility extends VpnExtensionAbility {
         if (Date.now() - lastUpdate >= 1000) {
           const errorUpdate = current.networkError !== lastNetworkError ? current.networkError : undefined;
           writeStatus(directory, current.state, errorUpdate, connectedAt || undefined, current.groups, commandId,
-            current.networkError);
+            current.networkError, current.mode, current.connections);
           lastNetworkError = current.networkError;
           lastUpdate = Date.now();
         }
@@ -192,17 +215,17 @@ export default class VpnAbility extends VpnExtensionAbility {
       const code = (cause as BusinessError).code;
       error = `${stage}失败${code ? `（系统错误 ${code}）` : ''}`;
     } finally {
-      nativeCore.stop();
+      this.stopCore();
       try {
         await this.destroyVpn();
       } catch (_) {
         error = error ?? '关闭系统 VPN 失败';
       }
       const deadline = Date.now() + 5000;
-      while ((JSON.parse(nativeCore.status()) as CoreState).state !== 'stopped' && Date.now() < deadline) {
+      while (this.coreState().state !== 'stopped' && Date.now() < deadline) {
         await delay(100);
       }
-      if ((JSON.parse(nativeCore.status()) as CoreState).state !== 'stopped') {
+      if (this.coreState().state !== 'stopped') {
         error = error ?? '内核关闭超时';
       }
       if (this.stopping) {
